@@ -1,28 +1,33 @@
-*.py[co]
-sphinx/_build/*
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Packages
-*.egg
-*.egg-info
-dist
-build
-eggs
-parts
-bin
-var
-sdist
-develop-eggs
-.installed.cfg
+# Local Python environments
+.venv/
+venv/
 
-# Installer logs
-pip-log.txt
+# Jupyter
+.ipynb_checkpoints/
 
-# Unit test / coverage reports
+# Build and test outputs
+build/
+dist/
 .coverage
-.tox
+.tox/
 
-#Translations
-*.mo
+# Local model weights and Hugging Face cache
+models/**/*.pt
+models/**/.cache/
+!models/**/README.md
 
-#Mr Developer
-.mr.developer.cfg
+# Generated inspection files
+tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
