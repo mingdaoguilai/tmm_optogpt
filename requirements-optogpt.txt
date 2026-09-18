@@ -7,4 +7,7 @@ scikit-learn==1.2.1
 colour-science==0.4.1
 tqdm==4.67.1
 huggingface-hub
+fastapi==0.112.2
+pydantic==2.8.2
+uvicorn[standard]==0.20.0
 

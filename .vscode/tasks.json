@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Workbench: setup",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\setup_workbench.ps1"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Workbench: start",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\start_workbench.ps1"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Workbench: test",
+      "type": "shell",
+      "command": "python",
+      "args": ["-m", "unittest", "discover", "-s", "tests", "-v"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}

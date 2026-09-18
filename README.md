@@ -4,6 +4,11 @@ This repository combines the existing transfer-matrix-method (TMM) optics
 package with a local OptoGPT deployment for multilayer thin-film inverse
 design.
 
+It now includes **OptiForge**, a local-first graphical workbench. The first
+release provides a multilayer stack editor, live TMM spectra, target-spectrum
+templates and CSV import, background OptoGPT generation, TMM verification and
+candidate comparison.
+
 ## Repository layout
 
 - `tmm/` - the original TMM forward solver and its tests and examples.
@@ -13,6 +18,9 @@ design.
 - `targets/` - target reflection/transmission spectra.
 - `models/optogpt/` - local pretrained weights and download instructions.
 - `papers/` - project reference material.
+- `app/` - FastAPI application and adapters for TMM, OptoGPT, materials and jobs.
+- `frontend/` - React/TypeScript graphical interface.
+- `scripts/` - one-command setup and launch helpers for Windows.
 
 ## Environment
 
@@ -24,6 +32,49 @@ remaining dependencies and the local TMM package from the repository root:
 python -m pip install -r .\requirements-optogpt.txt
 python -m pip install -e .\tmm
 ```
+
+## Set up and start the graphical workbench
+
+Open the repository folder in VS Code, select the `optogpt` Conda interpreter,
+and run the **Workbench: setup** task once. You can also run it from the VS
+Code terminal:
+
+```powershell
+conda activate optogpt
+.\scripts\setup_workbench.ps1 -Python "D:\anaconda\envs\optogpt\python.exe"
+```
+
+After setup, run the **Workbench: start** VS Code task or:
+
+```powershell
+.\scripts\start_workbench.ps1 -Python "D:\anaconda\envs\optogpt\python.exe"
+```
+
+The application starts at `http://127.0.0.1:8000` and opens the default
+browser automatically. The browser is only the user interface: the model,
+CUDA inference, material files and calculations remain on the local machine.
+
+For frontend development, run the backend with `python -m app`, then run
+`npm run dev` in `frontend/`. Vite proxies `/api` requests to the backend.
+
+### First-release workflow
+
+1. Build a layer stack and inspect the TMM R/T/A spectrum.
+2. Choose a target template or import `wavelength_nm,R,T` CSV data.
+3. Generate multiple structures with OptoGPT.
+4. Wait while every candidate is re-simulated and ranked with TMM.
+5. Compare candidates and send one back to the forward editor.
+6. Save the whole session as a versioned JSON project.
+
+The bundled checkpoint expects a 400-1100 nm target at 10 nm intervals and
+generates structures from its fixed material/thickness vocabulary. The UI
+shows this model boundary explicitly. Arbitrary-angle forward simulation is
+available in TMM; OptoGPT candidate verification currently uses its training
+condition of normal incidence.
+
+By default the app reads `models/optogpt/optogpt.pt`. For development or a
+shared model store, set `OPTOGPT_MODEL_PATH` to an absolute checkpoint path
+before starting the backend.
 
 The pretrained checkpoint is intentionally excluded from Git because it is
 approximately 726 MB and exceeds GitHub's normal per-file size limit. Follow

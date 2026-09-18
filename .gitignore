@@ -16,6 +16,11 @@ venv/
 # Build and test outputs
 build/
 dist/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 .coverage
 .tox/
 
@@ -26,6 +31,8 @@ models/**/.cache/
 
 # Generated inspection files
 tmp/
+projects/*.json
+!projects/.gitkeep
 
 # OS files
 .DS_Store
