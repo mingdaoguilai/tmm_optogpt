@@ -80,6 +80,27 @@ The pretrained checkpoint is intentionally excluded from Git because it is
 approximately 726 MB and exceeds GitHub's normal per-file size limit. Follow
 `models/optogpt/README.md` to download it locally.
 
+### Version 2: usability and material inspection
+
+- Click a material card or the layer editor's `i` button to inspect raw n/k
+  curves, query interpolated values, view samples and export CSV. Data comes
+  from the existing local `nk` files; this release does not replace it with
+  newly sourced measurements. Simulation rejects out-of-range wavelengths.
+- Numeric fields show units without spinner arrows. Enter/blur commits valid
+  values, Escape restores the last committed value, and arrow keys fine-tune.
+- Search materials, duplicate layers, undo stack edits, and configure substrate
+  thickness/coherence. The layout adapts to smaller windows.
+- Switching pages preserves inverse jobs and comparison selections. Browser
+  local storage restores project drafts; session storage reconnects the last
+  inverse job after a same-tab refresh. Jobs still live in server memory and
+  cannot resume after a backend restart. Export JSON for durable backups.
+- Candidate comparison switches between R/T and retains the generation target.
+  Adopting a candidate restores the same normal-incidence, incoherent glass
+  substrate conditions used by verification.
+
+After updating, rebuild with `npm run build` in `frontend/` and restart the
+backend using the start command above. No checkpoint retraining is required.
+
 ## Run inverse design
 
 Prepare a 71-row spectrum in `targets/target.csv`, covering 400-1100 nm in

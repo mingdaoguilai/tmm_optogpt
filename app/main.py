@@ -19,7 +19,7 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 app = FastAPI(
     title="TMM + OptoGPT Workbench",
-    version="0.1.0",
+    version="0.2.0",
     description="Local-first multilayer thin-film simulation and inverse design API.",
 )
 app.add_middleware(
@@ -51,6 +51,14 @@ def run_simulation(request: SimulationRequest) -> dict:
         return simulate(request).model_dump()
     except (ValueError, MaterialNotFoundError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get('/api/materials/{material}')
+def material_detail(material: str) -> dict:
+    try:
+        return material_service.detail(material)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @app.post("/api/inverse/jobs", status_code=202)
@@ -97,7 +105,9 @@ if FRONTEND_DIST.is_dir():
 
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
-        requested = FRONTEND_DIST / full_path
+        requested = (FRONTEND_DIST / full_path).resolve()
+        if FRONTEND_DIST.resolve() not in requested.parents:
+            return FileResponse(FRONTEND_DIST / 'index.html')
         if full_path and requested.is_file():
             return FileResponse(requested)
         return FileResponse(FRONTEND_DIST / "index.html")

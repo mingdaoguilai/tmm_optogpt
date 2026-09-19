@@ -22,6 +22,8 @@ class MaterialService:
 
     @lru_cache(maxsize=128)
     def _load(self, material: str) -> tuple[np.ndarray, np.ndarray]:
+        if material != Path(material).name or '/' in material or '\\' in material:
+            raise MaterialNotFoundError('Invalid material identifier')
         if material == "Air":
             return np.array([1.0, 10_000_000.0]), np.array([1.0 + 0j, 1.0 + 0j])
 
@@ -48,9 +50,17 @@ class MaterialService:
     def refractive_index(self, material: str, wavelengths_nm: Iterable[float]) -> np.ndarray:
         target = np.asarray(list(wavelengths_nm), dtype=float)
         source_wavelengths, source_nk = self._load(material)
+        if np.any(target < source_wavelengths[0]) or np.any(target > source_wavelengths[-1]):
+            raise ValueError(f'{material} 数据仅覆盖 {source_wavelengths[0]:.1f}–{source_wavelengths[-1]:.1f} nm，请缩小波长范围')
         real = np.interp(target, source_wavelengths, source_nk.real)
         imag = np.interp(target, source_wavelengths, source_nk.imag)
         return real + 1j * imag
+
+    def detail(self, material: str) -> dict:
+        wavelengths, nk = self._load(material)
+        return {'id': material, 'source': '常数介质 n=1, k=0' if material == 'Air' else f'nk/{material}.csv',
+                'wavelengths_nm': wavelengths.tolist(), 'n': nk.real.tolist(), 'k': nk.imag.tolist(),
+                'interpolation': '线性插值；范围外不外推'}
 
     def list_materials(self) -> List[Dict[str, object]]:
         materials: List[Dict[str, object]] = [

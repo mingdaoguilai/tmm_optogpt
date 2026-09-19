@@ -11,6 +11,20 @@ from app.services.tmm_service import simulate
 
 
 class MaterialServiceTests(unittest.TestCase):
+    def test_detail_matches_calculation_at_sample_points(self):
+        detail = material_service.detail('SiO2')
+        result = material_service.refractive_index('SiO2', detail['wavelengths_nm'])
+        np.testing.assert_allclose(result.real, detail['n'])
+        np.testing.assert_allclose(result.imag, detail['k'])
+
+    def test_out_of_range_is_rejected(self):
+        with self.assertRaises(ValueError):
+            material_service.refractive_index('SiO2', [0.1])
+
+    def test_path_traversal_is_rejected(self):
+        with self.assertRaises(ValueError):
+            material_service.detail('../SiO2')
+
     def test_material_interpolation(self):
         values = material_service.refractive_index("SiO2", [400, 550, 1100])
         self.assertEqual(values.shape, (3,))

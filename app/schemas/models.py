@@ -91,4 +91,5 @@ class ProjectDocument(BaseModel):
     name: str = "Untitled project"
     simulation: SimulationRequest
     target: Optional[TargetSpectrum] = None
+    candidate_target: Optional[TargetSpectrum] = None
     candidates: List[CandidateResult] = Field(default_factory=list)

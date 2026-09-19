@@ -6,9 +6,10 @@ interface SpectrumPlotProps {
   target?: TargetSpectrum | null;
   candidates?: Candidate[];
   compact?: boolean;
+  channel?: "R" | "T";
 }
 
-export function SpectrumPlot({ simulation, target, candidates = [], compact = false }: SpectrumPlotProps) {
+export function SpectrumPlot({ simulation, target, candidates = [], compact = false, channel = "R" }: SpectrumPlotProps) {
   const data: Plotly.Data[] = [];
   if (target) {
     data.push(
@@ -18,7 +19,7 @@ export function SpectrumPlot({ simulation, target, candidates = [], compact = fa
         name: "目标 R",
         type: "scatter",
         mode: "lines",
-        line: { color: "#f7c873", width: 3, dash: "dot" },
+        line: { color: "#76a9ff", width: 3, dash: "dot" },
       },
       {
         x: target.wavelengths_nm,
@@ -62,8 +63,8 @@ export function SpectrumPlot({ simulation, target, candidates = [], compact = fa
     const palette = ["#a78bfa", "#fb7185", "#38bdf8", "#f59e0b"];
     data.push({
       x: candidate.simulation.wavelengths_nm,
-      y: candidate.simulation.reflectance,
-      name: `#${candidate.rank} R`,
+      y: channel === "R" ? candidate.simulation.reflectance : candidate.simulation.transmittance,
+      name: `#${candidate.rank} ${channel}`,
       type: "scatter",
       mode: "lines",
       line: { color: palette[index % palette.length], width: 1.8 },
@@ -95,7 +96,7 @@ export function SpectrumPlot({ simulation, target, candidates = [], compact = fa
         },
         hovermode: "x unified",
       }}
-      config={{ responsive: true, displaylogo: false, scrollZoom: true }}
+      config={{ responsive: true, displaylogo: false, scrollZoom: true, modeBarButtonsToRemove: ['sendChartToCloud'] }}
       useResizeHandler
       style={{ width: "100%", height: "100%" }}
     />

@@ -1,3 +1,4 @@
+import { NumberField } from "../components/NumberField";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { SpectrumPlot } from "../components/SpectrumPlot";
@@ -7,7 +8,7 @@ import { createTarget, formatPercent, parseTargetCsv, type TargetTemplate } from
 interface InversePageProps {
   target: TargetSpectrum;
   onTargetChange: (target: TargetSpectrum) => void;
-  onCandidatesChange: (candidates: Candidate[]) => void;
+  onCandidatesChange: (candidates: Candidate[], snapshot: TargetSpectrum) => void;
   onUseCandidate: (candidate: Candidate) => void;
 }
 
@@ -19,28 +20,50 @@ export function InversePage({ target, onTargetChange, onCandidatesChange, onUseC
   const [seed, setSeed] = useState(42);
   const [job, setJob] = useState<InverseJob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const submittedTarget = useRef<TargetSpectrum>(target);
+  const [submitting, setSubmitting] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('optiforge-inverse') || 'null');
+      if (saved) {
+        setCandidateCount(saved.candidateCount); setMaxLayers(saved.maxLayers);
+        setTemperature(saved.temperature); setSeed(saved.seed);
+        if (saved.job) { submittedTarget.current = saved.target; setJob(saved.job); }
+      }
+    } catch { /* Missing or obsolete session data can be ignored. */ }
+  }, []);
+  useEffect(() => {
+    try { sessionStorage.setItem('optiforge-inverse', JSON.stringify({job, target:submittedTarget.current, candidateCount,maxLayers,temperature,seed})); }
+    catch { /* Project export remains available if session storage is full. */ }
+  }, [job, candidateCount, maxLayers, temperature, seed]);
 
   useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status)) return;
+    let cancelled = false;
     const timer = window.setInterval(async () => {
       try {
         const next = await api.inverseJob(job.id);
+        if (cancelled) return;
         setJob(next);
-        if (next.status === "completed" && next.result) onCandidatesChange(next.result.candidates);
+        if (next.status === "completed" && next.result) onCandidatesChange(next.result.candidates, submittedTarget.current);
         if (next.status === "failed") setError(next.error?.message ?? next.message);
       } catch (caught) {
+        if (cancelled) return;
         setError(caught instanceof Error ? caught.message : String(caught));
+        setJob(current => current ? {...current, status:'failed', message:'任务连接已中断；请确认服务是否重启'} : null);
       }
     }, 900);
-    return () => window.clearInterval(timer);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, [job?.id, job?.status]);
 
   const start = async () => {
+    setSubmitting(true);
+    submittedTarget.current = structuredClone(target);
     setError(null);
     try {
       setJob(await api.createInverseJob({
-        target,
+        target: submittedTarget.current,
         candidate_count: candidateCount,
         max_layers: maxLayers,
         top_k: 50,
@@ -51,7 +74,7 @@ export function InversePage({ target, onTargetChange, onCandidatesChange, onUseC
       }));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
-    }
+    } finally { setSubmitting(false); }
   };
 
   const importCsv = async (file: File) => {
@@ -72,7 +95,7 @@ export function InversePage({ target, onTargetChange, onCandidatesChange, onUseC
         <div className="title-actions">
           <button className="secondary-button" onClick={() => uploadRef.current?.click()}>导入目标 CSV</button>
           <input ref={uploadRef} hidden type="file" accept=".csv,text/csv" onChange={(event) => event.target.files?.[0] && importCsv(event.target.files[0])} />
-          {active ? <button className="danger-button" onClick={() => api.cancelInverseJob(job.id)}>停止</button> : <button className="primary-button" onClick={start}>生成候选</button>}
+          {active ? <button className="danger-button" onClick={() => api.cancelInverseJob(job.id).then(setJob).catch(e => setError(String(e)))}>停止</button> : <button className="primary-button" disabled={submitting} onClick={start}>{submitting ? "提交中…" : "生成候选"}</button>}
         </div>
       </div>
 
@@ -87,10 +110,10 @@ export function InversePage({ target, onTargetChange, onCandidatesChange, onUseC
             </select>
           </label>
           <div className="form-grid two-columns">
-            <label>候选数量<input type="number" min="1" max="100" value={candidateCount} onChange={(event) => setCandidateCount(Number(event.target.value))} /></label>
-            <label>最大层数<input type="number" min="1" max="20" value={maxLayers} onChange={(event) => setMaxLayers(Number(event.target.value))} /></label>
-            <label>采样温度<input type="number" min="0.1" max="5" step="0.1" value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} /></label>
-            <label>随机种子<input type="number" min="0" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label>
+            <label>候选数量<NumberField value={candidateCount} onChange={(value) => setCandidateCount(value)} min={1} max={100} integer /></label>
+            <label>最大层数<NumberField value={maxLayers} onChange={(value) => setMaxLayers(value)} min={1} max={20} integer /></label>
+            <label>采样温度<NumberField value={temperature} onChange={(value) => setTemperature(value)} min={0.1} max={5} step={0.1} /></label>
+            <label>随机种子<NumberField value={seed} onChange={(value) => setSeed(value)} min={0} integer /></label>
           </div>
           <div className="target-stats"><span>目标点数<strong>{target.wavelengths_nm.length}</strong></span><span>波长范围<strong>{target.wavelengths_nm[0]}–{target.wavelengths_nm[target.wavelengths_nm.length - 1]} nm</strong></span></div>
           {job && <div className="job-card"><div className="job-title"><span>{job.message}</span><strong>{Math.round(job.progress * 100)}%</strong></div><div className="progress-track"><span style={{ width: `${job.progress * 100}%` }} /></div><small>阶段：{job.stage}</small></div>}
