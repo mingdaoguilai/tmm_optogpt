@@ -9,6 +9,8 @@ from typing import Callable, List, Optional
 import numpy as np
 import torch
 
+from app.services.decoding import beam_decode, sampling_probabilities
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 OPTOGPT_ROOT = PROJECT_ROOT / "third_party" / "optogpt" / "optogpt"
@@ -77,15 +79,34 @@ class OptoGPTService:
             self.id_to_word = self.config.struc_index_dict
 
     @torch.inference_mode()
+    def _next_log_probs(self, spectrum_target, ids):
+        source = torch.as_tensor(spectrum_target, dtype=torch.float32, device=self.device).view(1, 1, -1)
+        generated = torch.tensor([[self.word_to_id["BOS"], *ids]], dtype=torch.long, device=self.device)
+        mask = torch.ones((1, generated.size(1), generated.size(1)),
+                          dtype=torch.bool, device=self.device).tril()
+        output = self.model(source, generated, None, mask)
+        logits = self.model.generator(output[:, -1]).squeeze(0).clone()
+        for token in ("BOS", "PAD", "UNK"):
+            if token in self.word_to_id:
+                logits[self.word_to_id[token]] = -torch.inf
+        # Empty structures are not valid optical candidates.
+        if not ids:
+            logits[self.word_to_id["EOS"]] = -torch.inf
+        return torch.log_softmax(logits, dim=-1)
+
+    @torch.inference_mode()
     def sample(
         self,
         spectrum_target: np.ndarray,
         top_k: int,
         temperature: float,
         max_layers: int,
+        top_p: float = 1.0,
+        generator=None,
+        greedy: bool = False,
+        cancelled: Optional[CancelCallback] = None,
     ) -> List[str]:
         self.load()
-        from core.datasets.datasets import subsequent_mask
 
         expected_dimension = int(self.config.spec_dim)
         target = np.asarray(spectrum_target, dtype=np.float32)
@@ -94,34 +115,25 @@ class OptoGPTService:
                 f"Model expects a {expected_dimension}-value spectrum, received {target.shape}"
             )
 
-        source = torch.as_tensor(target, dtype=torch.float32, device=self.device).view(1, 1, -1)
-        bos_id = self.word_to_id["BOS"]
+        if not np.all(np.isfinite(target)):
+            raise ValueError("Target spectrum must be finite")
         eos_id = self.word_to_id["EOS"]
-        generated = torch.tensor([[bos_id]], dtype=torch.long, device=self.device)
+        ids = []
         structure: List[str] = []
 
         for _ in range(max_layers):
-            target_mask = subsequent_mask(generated.size(1)).to(self.device)
-            output = self.model(source, generated, None, target_mask)
-            logits = self.model.generator(output[:, -1]).squeeze(0) / temperature
-            for special_token in ("BOS", "PAD", "UNK"):
-                token_id = self.word_to_id.get(special_token)
-                if token_id is not None:
-                    logits[token_id] = -torch.inf
-            probabilities = torch.softmax(logits, dim=-1)
-            if 0 < top_k < probabilities.numel():
-                indices = torch.topk(probabilities, top_k).indices
-                filtered = torch.zeros_like(probabilities)
-                filtered[indices] = probabilities[indices]
-                probabilities = filtered
-            probabilities = probabilities / probabilities.sum()
-            next_id = int(torch.multinomial(probabilities, num_samples=1).item())
+            if cancelled and cancelled():
+                return []
+            logits = self._next_log_probs(target, ids)
+            if greedy:
+                next_id = int(torch.argmax(logits))
+            else:
+                probabilities = sampling_probabilities(logits, top_k, top_p, temperature)
+                next_id = int(torch.multinomial(probabilities, num_samples=1, generator=generator).item())
             if next_id == eos_id:
                 break
             structure.append(self.id_to_word[next_id])
-            generated = torch.cat(
-                [generated, torch.tensor([[next_id]], device=self.device)], dim=1
-            )
+            ids.append(next_id)
         return structure
 
     def generate_many(
@@ -134,35 +146,85 @@ class OptoGPTService:
         seed: int,
         progress: Optional[ProgressCallback] = None,
         cancelled: Optional[CancelCallback] = None,
-    ) -> List[List[str]]:
+        sample_count: int = 300,
+        seed_count: int = 4,
+        temperatures: Optional[List[float]] = None,
+        top_p: float = 0.85,
+        include_greedy: bool = True,
+        beam_width: int = 5,
+        length_penalty: float = 0.6,
+    ) -> dict:
         self.load()
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        target = np.asarray(spectrum_target, dtype=np.float32)
+        if target.shape != (int(self.config.spec_dim),) or not np.all(np.isfinite(target)):
+            raise ValueError("Invalid target spectrum shape or nonfinite values")
+        cancelled = cancelled or (lambda: False)
+        temperatures = temperatures if temperatures is not None else [temperature]
+        seeds = [(seed + offset) % (2**32) for offset in range(seed_count)]
+        # One independent RNG stream per seed/temperature cell; no global RNG mutation.
+        cells = [(value, torch.Generator(device=self.device).manual_seed(s))
+                 for s in seeds for value in temperatures]
         candidates: List[List[str]] = []
         seen = set()
-        maximum_attempts = candidate_count * 10
-        for attempt in range(maximum_attempts):
-            if cancelled and cancelled():
-                break
-            structure = self.sample(
-                spectrum_target,
-                top_k=top_k,
-                temperature=temperature,
-                max_layers=max_layers,
-            )
+        provenance = {}
+        raw_count = 0
+        sampled = 0
+
+        def add(structure, origin):
+            nonlocal raw_count
+            if not structure:
+                return
+            raw_count += 1
             key = tuple(structure)
-            if structure and key not in seen:
+            if key not in seen:
                 seen.add(key)
                 candidates.append(structure)
+                provenance[key] = []
+            if origin not in provenance[key]:
+                provenance[key].append(origin)
+
+        for attempt in range(sample_count):
+            if cancelled():
+                break
+            value, rng = cells[attempt % len(cells)]
+            structure = self.sample(
+                target,
+                top_k=top_k,
+                top_p=top_p,
+                temperature=value,
+                max_layers=max_layers,
+                generator=rng,
+                cancelled=cancelled,
+            )
+            if cancelled():
+                break
+            sampled += 1
+            add(structure, "sampling")
             if progress:
                 progress(
-                    min(1.0, len(candidates) / candidate_count),
-                    f"Generated {len(candidates)} of {candidate_count} unique candidates",
+                    0.85 * sampled / sample_count,
+                    f"随机抽样 {sampled}/{sample_count} · 唯一结构 {len(candidates)}",
                 )
-            if len(candidates) >= candidate_count:
-                break
-        return candidates
+        if include_greedy and not cancelled():
+            if progress:
+                progress(0.86, "正在生成 greedy 候选")
+            add(self.sample(target, top_k, 1.0, max_layers, greedy=True,
+                            cancelled=cancelled), "greedy")
+        if beam_width and not cancelled():
+            if progress:
+                progress(0.9, "正在进行长度归一化 beam search")
+            beams = beam_decode(lambda ids: self._next_log_probs(target, ids),
+                                self.word_to_id["EOS"], max_layers, beam_width,
+                                length_penalty, cancelled)
+            for ids in beams:
+                add([self.id_to_word[i] for i in ids], "beam")
+        if progress and not cancelled():
+            progress(1.0, f"搜索完成 · {len(candidates)} 个唯一结构待 TMM 验证")
+        return {"structures": candidates, "provenance": provenance,
+                "summary": {"sampled_count": sampled, "raw_count": raw_count,
+                            "unique_count": len(candidates),
+                            "duplicate_count": raw_count - len(candidates),
+                            "seeds": seeds, "temperatures": temperatures}}
 
 
 optogpt_service = OptoGPTService()

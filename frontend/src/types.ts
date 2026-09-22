@@ -44,6 +44,7 @@ export interface Material {
 }
 
 export interface Candidate {
+  sources?: string[];
   rank: number;
   tokens: string[];
   layers: Layer[];
@@ -78,7 +79,16 @@ export interface InverseJob {
   message: string;
   progress: number;
   error?: { message: string } | null;
-  result?: { candidates: Candidate[] } | null;
+  result?: {
+    candidates: Candidate[];
+    target?: TargetSpectrum;
+    search_settings?: Record<string, unknown>;
+    search_summary?: {
+      sampled_count: number; raw_count: number; unique_count: number;
+      duplicate_count: number; verified_count: number; retained_count: number;
+      seeds: number[]; temperatures: number[];
+    };
+  } | null;
 }
 
 export type PageId = "forward" | "inverse" | "compare" | "materials";

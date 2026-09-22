@@ -66,15 +66,39 @@ class InverseJobRequest(BaseModel):
     target: TargetSpectrum
     candidate_count: int = Field(default=20, ge=1, le=100)
     max_layers: int = Field(default=20, ge=1, le=20)
-    top_k: int = Field(default=50, ge=1)
+    top_k: int = Field(default=10, ge=1, le=1000)
+    top_p: float = Field(default=0.85, gt=0, le=1)
+    sample_count: int = Field(default=300, ge=1, le=1000)
+    seed_count: int = Field(default=4, ge=1, le=8)
+    temperatures: Optional[List[float]] = None
+    include_greedy: bool = True
+    beam_width: int = Field(default=5, ge=0, le=20)
+    length_penalty: float = Field(default=0.6, ge=0, le=2)
     temperature: float = Field(default=1.0, gt=0, le=5)
-    seed: int = Field(default=42, ge=0)
+    seed: int = Field(default=42, ge=0, le=2**32 - 1)
     reflectance_weight: float = Field(default=1.0, ge=0)
     transmittance_weight: float = Field(default=1.0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_search(self) -> "InverseJobRequest":
+        # Legacy clients can still supply a single temperature.
+        if self.temperatures is None:
+            self.temperatures = ([self.temperature] if "temperature" in self.model_fields_set
+                                 else [0.7, 0.85, 1.0])
+        if not 1 <= len(self.temperatures) <= 5 or any(
+            not 0.1 <= value <= 5 for value in self.temperatures
+        ):
+            raise ValueError("Provide 1-5 finite temperatures between 0.1 and 5")
+        if self.reflectance_weight + self.transmittance_weight <= 0:
+            raise ValueError("At least one spectrum weight must be positive")
+        if self.sample_count < self.seed_count * len(self.temperatures):
+            raise ValueError("Sampling budget must cover every seed/temperature combination")
+        return self
 
 
 class CandidateResult(BaseModel):
     rank: int = 0
+    sources: List[str] = Field(default_factory=list)
     tokens: List[str]
     layers: List[Layer]
     mae_r: float

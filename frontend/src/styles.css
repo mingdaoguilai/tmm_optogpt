@@ -77,6 +77,15 @@ label { display: grid; gap: 6px; color: #8f9db5; font-size: 10px; letter-spacing
   .page-shell { padding-left: 22px; padding-right: 22px; }
 }
 
+/* v3 search controls */
+.search-help { color: var(--muted); font-size: 12px; line-height: 1.65; }
+.search-options { margin: 14px 0; border-top: 1px solid var(--line); padding-top: 12px; }
+.search-options summary { cursor: pointer; font-size: 13px; margin-bottom: 12px; }
+.search-check { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.search-check input { width: auto; min-height: 0; accent-color: var(--blue); }
+.job-card p { font-size: 12px; line-height: 1.6; }
+.job-card button { margin-top: 10px; }
+
 /* v2: consistent controls, readable data, and layouts that fit the viewport. */
 [hidden] { display: none !important; }
 body { min-width: 0 !important; }

@@ -101,6 +101,18 @@ approximately 726 MB and exceeds GitHub's normal per-file size limit. Follow
 After updating, rebuild with `npm run build` in `frontend/` and restart the
 backend using the start command above. No checkpoint retraining is required.
 
+### Version 3: multi-strategy inverse search
+
+The inverse page now defaults to 300 stochastic attempts shared across four
+seeds and temperatures 0.7/0.85/1.0, with top-k 10 and top-p 0.85. Greedy and
+length-normalized beam search add candidates to the same pool. Every unique
+structure is verified by TMM before retaining the best 20 by spectral MAE.
+The UI exposes search controls, counts, provenance and a full search export.
+No checkpoint retraining is required. Rebuild the frontend and restart the backend.
+
+See [the v3 parameter and provenance guide](docs/optogpt-v3.md) for exact
+semantics, compatibility notes, upstream versus new functionality, and benchmark commands.
+
 ## Run inverse design
 
 Prepare a 71-row spectrum in `targets/target.csv`, covering 400-1100 nm in

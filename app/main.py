@@ -19,7 +19,7 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 app = FastAPI(
     title="TMM + OptoGPT Workbench",
-    version="0.2.0",
+    version="0.3.0",
     description="Local-first multilayer thin-film simulation and inverse design API.",
 )
 app.add_middleware(

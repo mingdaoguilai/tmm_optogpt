@@ -17,7 +17,10 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(body.detail ?? `Request failed: ${response.status}`);
+    const detail = Array.isArray(body.detail)
+      ? body.detail.map((item: { msg: string }) => item.msg).join("; ")
+      : body.detail;
+    throw new Error(detail ?? `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
 }
@@ -38,7 +41,13 @@ export const api = {
     candidate_count: number;
     max_layers: number;
     top_k: number;
-    temperature: number;
+    temperatures: number[];
+    top_p: number;
+    sample_count: number;
+    seed_count: number;
+    include_greedy: boolean;
+    beam_width: number;
+    length_penalty: number;
     seed: number;
     reflectance_weight: number;
     transmittance_weight: number;

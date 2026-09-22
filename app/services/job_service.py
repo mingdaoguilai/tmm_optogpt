@@ -76,19 +76,27 @@ class InverseJobManager:
                     progress=0.08 + value * 0.47,
                 )
 
-            structures = optogpt_service.generate_many(
+            search = optogpt_service.generate_many(
                 vector,
                 candidate_count=request.candidate_count,
                 top_k=request.top_k,
                 temperature=request.temperature,
                 max_layers=request.max_layers,
                 seed=request.seed,
+                sample_count=request.sample_count,
+                seed_count=request.seed_count,
+                temperatures=request.temperatures,
+                top_p=request.top_p,
+                include_greedy=request.include_greedy,
+                beam_width=request.beam_width,
+                length_penalty=request.length_penalty,
                 progress=generation_progress,
                 cancelled=lambda: self._cancelled(job_id),
             )
             if self._cancelled(job_id):
                 self._update(job_id, status="cancelled", stage="cancelled", progress=1.0)
                 return
+            structures = search["structures"]
             if not structures:
                 raise RuntimeError("OptoGPT did not generate a valid candidate")
 
@@ -112,16 +120,26 @@ class InverseJobManager:
                     )
                 )
 
-            candidates.sort(key=lambda item: item.score)
+            for candidate in candidates:
+                candidate.sources = search["provenance"].get(tuple(candidate.tokens), [])
+            candidates.sort(key=lambda item: (
+                (request.reflectance_weight * item.mae_r + request.transmittance_weight * item.mae_t)
+                / (request.reflectance_weight + request.transmittance_weight), item.score))
+            verified_count = len(candidates)
+            candidates = candidates[:request.candidate_count]
             for rank, candidate in enumerate(candidates, start=1):
                 candidate.rank = rank
             self._update(
                 job_id,
                 status="completed",
                 stage="completed",
-                message=f"Completed with {len(candidates)} verified candidates",
+                message=f"已验证 {verified_count} 组 · 保留最优 {len(candidates)} 组",
                 progress=1.0,
-                result={"candidates": [candidate.model_dump() for candidate in candidates]},
+                result={"candidates": [candidate.model_dump() for candidate in candidates],
+                        "search_summary": {**search["summary"], "verified_count": verified_count,
+                                           "retained_count": len(candidates)},
+                        "search_settings": request.model_dump(exclude={"target"}),
+                        "target": request.target.model_dump()},
             )
         except Exception as error:  # pragma: no cover - surfaced through job API
             self._update(
