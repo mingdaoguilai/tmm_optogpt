@@ -1,4 +1,5 @@
 import type { TargetSpectrum } from "./types";
+import { validateSpectrum } from "./targetEditor";
 
 export type TargetTemplate = "high-reflector" | "anti-reflection" | "bandpass" | "edge-filter";
 
@@ -29,9 +30,12 @@ export function parseTargetCsv(text: string): TargetSpectrum {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const values = rows
-    .map((row) => row.split(",").map((value) => Number(value.trim())))
-    .filter((row) => row.length >= 3 && row.every(Number.isFinite));
+  if (rows[0]?.replace(/^\uFEFF/, "").split(",")[0].trim().toLowerCase().match(/^(wavelength_nm|wavelength|nm)$/)) rows.shift();
+  const values = rows.map((row, index) => {
+    const cells = row.split(",").slice(0, 3).map(value => value.trim());
+    if (cells.length !== 3 || cells.some(value => !value || !Number.isFinite(Number(value)))) throw new Error(`CSV 数据行 ${index + 1} 无效，请提供 wavelength_nm,R,T 三列数值`);
+    return cells.map(Number);
+  });
   if (values.length < 2) throw new Error("CSV 至少需要两行数值，列顺序为 wavelength_nm,R,T");
   values.sort((left, right) => left[0] - right[0]);
   if (values[0][0] > 400 || values[values.length - 1][0] < 1100) {
@@ -42,11 +46,13 @@ export function parseTargetCsv(text: string): TargetSpectrum {
   if ([...reflectance, ...transmittance].some((value) => value < 0 || value > 1)) {
     throw new Error("R 和 T 必须位于 0–1 之间");
   }
-  return {
+  const target = {
     wavelengths_nm: values.map((row) => row[0]),
     reflectance,
     transmittance,
   };
+  validateSpectrum(target, false);
+  return target;
 }
 
 export function formatPercent(value: number) {

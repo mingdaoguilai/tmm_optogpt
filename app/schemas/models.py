@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Literal, Optional
+import math
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -48,18 +49,69 @@ class TargetSpectrum(BaseModel):
     @field_validator("reflectance", "transmittance")
     @classmethod
     def validate_unit_interval(cls, spectrum: List[float]) -> List[float]:
-        if any(value < 0 or value > 1 for value in spectrum):
+        if any(not math.isfinite(value) or value < 0 or value > 1 for value in spectrum):
             raise ValueError("Spectrum values must be in the range [0, 1]")
         return spectrum
 
     @model_validator(mode="after")
     def validate_lengths(self) -> "TargetSpectrum":
+        if len(self.wavelengths_nm) < 2 or len(self.wavelengths_nm) > 10000:
+            raise ValueError("Target must contain between 2 and 10000 points")
+        if any(not math.isfinite(x) or x <= 0 or (i > 0 and x <= self.wavelengths_nm[i - 1])
+               for i, x in enumerate(self.wavelengths_nm)):
+            raise ValueError("Wavelengths must be finite, positive, increasing and unique")
         if (
             len(self.reflectance) != len(self.wavelengths_nm)
             or len(self.transmittance) != len(self.wavelengths_nm)
         ):
             raise ValueError("Wavelength, reflectance, and transmittance lengths must match")
         return self
+
+
+class ControlPoint(BaseModel):
+    wavelength_nm: float = Field(ge=400, le=1100, allow_inf_nan=False)
+    value: float = Field(ge=0, le=1, allow_inf_nan=False)
+
+
+class EditorChannels(BaseModel):
+    R: List[ControlPoint] = Field(min_length=2, max_length=2000)
+    T: List[ControlPoint] = Field(min_length=2, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_points(self) -> "EditorChannels":
+        for points in (self.R, self.T):
+            if points[0].wavelength_nm != 400 or points[-1].wavelength_nm != 1100:
+                raise ValueError("Editor control points must start at 400 and end at 1100 nm")
+            if any(right.wavelength_nm <= left.wavelength_nm for left, right in zip(points, points[1:])):
+                raise ValueError("Editor control points must have unique increasing wavelengths")
+        return self
+
+
+class SpectrumGenerator(BaseModel):
+    shape: Literal["gaussian", "notch", "bandpass", "edge"] = "gaussian"
+    center_nm: float = Field(default=650, ge=400, le=1100, allow_inf_nan=False)
+    width_nm: float = Field(default=100, ge=1, le=700, allow_inf_nan=False)
+    transition_nm: float = Field(default=15, ge=1, le=200, allow_inf_nan=False)
+    low: float = Field(default=0.05, ge=0, le=1, allow_inf_nan=False)
+    high: float = Field(default=0.9, ge=0, le=1, allow_inf_nan=False)
+    operation: Literal["replace", "overlay"] = "replace"
+
+    @model_validator(mode="after")
+    def validate_amplitudes(self) -> "SpectrumGenerator":
+        if self.low >= self.high:
+            raise ValueError("Generator low amplitude must be less than high amplitude")
+        return self
+
+
+class TargetEditorState(BaseModel):
+    schema_version: Literal[1] = 1
+    channel: Literal["R", "T"] = "R"
+    interpolation: Literal["linear", "pchip"] = "linear"
+    linked: bool = False
+    points: EditorChannels
+    generator: SpectrumGenerator = Field(default_factory=SpectrumGenerator)
+    source_label: Optional[str] = None
+    source_spectrum: Optional[TargetSpectrum] = None
 
 
 class InverseJobRequest(BaseModel):
@@ -81,6 +133,8 @@ class InverseJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_search(self) -> "InverseJobRequest":
+        if any(r + t > 1 + 1e-8 for r, t in zip(self.target.reflectance, self.target.transmittance)):
+            raise ValueError("Passive target requires R + T <= 1 at every wavelength")
         # Legacy clients can still supply a single temperature.
         if self.temperatures is None:
             self.temperatures = ([self.temperature] if "temperature" in self.model_fields_set
@@ -111,9 +165,10 @@ class CandidateResult(BaseModel):
 
 
 class ProjectDocument(BaseModel):
-    schema_version: int = 1
+    schema_version: Literal[1, 2] = 2
     name: str = "Untitled project"
     simulation: SimulationRequest
     target: Optional[TargetSpectrum] = None
+    target_editor: Optional[TargetEditorState] = None
     candidate_target: Optional[TargetSpectrum] = None
     candidates: List[CandidateResult] = Field(default_factory=list)

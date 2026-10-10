@@ -53,7 +53,7 @@ After setup, run the **Workbench: start** VS Code task or:
 On Windows, you can also double-click `start_workbench.cmd` in the project
 directory. The launcher uses `OPTOGPT_PYTHON` if configured, otherwise the
 existing `D:\anaconda\envs\optogpt\python.exe` when available, then `python`.
-The interface displays **OptiForge · V3** and backend version **0.3.0**.
+The interface displays **OptiForge · V4** and backend version **0.4.0**.
 The launcher reuses a running server only when its version and project directory
 match; otherwise it selects another local port. It opens the browser after the
 matching backend is ready. Closing the launch terminal stops that instance.
@@ -120,6 +120,20 @@ No checkpoint retraining is required. Rebuild the frontend and restart the backe
 
 See [the v3 parameter and provenance guide](docs/optogpt-v3.md) for exact
 semantics, compatibility notes, upstream versus new functionality, and benchmark commands.
+
+### Version 4, part 1: editable target spectra
+
+The inverse page now supports draggable control points, exact numeric editing,
+linear or shape-preserving smooth interpolation, Gaussian peaks/notches,
+bandpass and edge components, and CSV import/paste followed by editing.
+R/T can be independent or explicitly linked under a no-absorption assumption.
+Undo/redo, original/edited CSV export, model-grid preview and passive-target
+validation are included. Project schema 2 saves editable control points and
+component settings while remaining able to load schema 1 projects.
+
+See [the target editor guide](docs/optogpt-v4-inputs.md). This release implements
+target input only; continuous thickness refinement remains planned.
+Rebuild `frontend/` and restart the backend to use version 0.4.0.
 
 ## Run inverse design
 

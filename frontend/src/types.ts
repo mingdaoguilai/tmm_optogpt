@@ -35,6 +35,27 @@ export interface TargetSpectrum {
   transmittance: number[];
 }
 
+export interface ControlPoint { wavelength_nm: number; value: number }
+export interface SpectrumGenerator {
+  shape: "gaussian" | "notch" | "bandpass" | "edge";
+  center_nm: number;
+  width_nm: number;
+  transition_nm: number;
+  low: number;
+  high: number;
+  operation: "replace" | "overlay";
+}
+export interface TargetEditorState {
+  schema_version: 1;
+  channel: "R" | "T";
+  interpolation: "linear" | "pchip";
+  linked: boolean;
+  points: { R: ControlPoint[]; T: ControlPoint[] };
+  generator: SpectrumGenerator;
+  source_label?: string;
+  source_spectrum?: TargetSpectrum;
+}
+
 export interface Material {
   id: string;
   label: string;

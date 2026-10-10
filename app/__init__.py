@@ -1,3 +1,3 @@
 """Local web application for TMM + OptoGPT."""
 
-WORKBENCH_VERSION = "0.3.0"
+WORKBENCH_VERSION = "0.4.0"

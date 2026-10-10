@@ -53,7 +53,7 @@ def _open_browser(url: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Start the local OptiForge v3 workbench")
+    parser = argparse.ArgumentParser(description="Start the local OptiForge workbench")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
