@@ -50,6 +50,14 @@ After setup, run the **Workbench: start** VS Code task or:
 .\scripts\start_workbench.ps1 -Python "D:\anaconda\envs\optogpt\python.exe"
 ```
 
+On Windows, you can also double-click `start_workbench.cmd` in the project
+directory. The launcher uses `OPTOGPT_PYTHON` if configured, otherwise the
+existing `D:\anaconda\envs\optogpt\python.exe` when available, then `python`.
+The interface displays **OptiForge · V3** and backend version **0.3.0**.
+The launcher reuses a running server only when its version and project directory
+match; otherwise it selects another local port. It opens the browser after the
+matching backend is ready. Closing the launch terminal stops that instance.
+
 The application starts at `http://127.0.0.1:8000` and opens the default
 browser automatically. The browser is only the user interface: the model,
 CUDA inference, material files and calculations remain on the local machine.

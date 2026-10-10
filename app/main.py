@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import WORKBENCH_VERSION
+
 from app.schemas import InverseJobRequest, ProjectDocument, SimulationRequest
 from app.services.job_service import inverse_job_manager
 from app.services.material_service import MaterialNotFoundError, material_service
@@ -19,7 +21,7 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 app = FastAPI(
     title="TMM + OptoGPT Workbench",
-    version="0.3.0",
+    version=WORKBENCH_VERSION,
     description="Local-first multilayer thin-film simulation and inverse design API.",
 )
 app.add_middleware(
@@ -36,6 +38,8 @@ def health() -> dict:
     return {
         "status": "ok",
         "application": "TMM + OptoGPT Workbench",
+        "version": WORKBENCH_VERSION,
+        "project_root": str(PROJECT_ROOT),
         "optogpt": optogpt_service.status(),
     }
 

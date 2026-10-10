@@ -109,7 +109,7 @@ export default function App() {
   return (
     <div className="app-layout">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark"><span /><span /><span /></div><div><strong>OptiForge</strong><small>TMM + OptoGPT</small></div></div>
+        <div className="brand" title={health?.project_root}><div className="brand-mark"><span /><span /><span /></div><div><strong>OptiForge · V3</strong><small>TMM + OptoGPT · {health?.version ?? "连接中"}</small></div></div>
         <nav>{nav.map((item) => <button key={item.id} className={page === item.id ? "active" : ""} onClick={() => setPage(item.id)}><span className="nav-icon">{item.icon}</span><span>{item.label}<small>{item.caption}</small></span></button>)}</nav>
         <div className="sidebar-note"><span className={health?.optogpt.model_present ? "online-dot" : "offline-dot"} /><div><strong>{health?.optogpt.model_present ? "计算核心就绪" : "模型未找到"}</strong><small>{health?.optogpt.device ?? "正在连接后端"}</small></div></div>
       </aside>

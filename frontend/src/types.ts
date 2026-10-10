@@ -67,6 +67,8 @@ export interface OptoGPTStatus {
 }
 
 export interface HealthResponse {
+  version?: string;
+  project_root?: string;
   status: string;
   application: string;
   optogpt: OptoGPTStatus;
