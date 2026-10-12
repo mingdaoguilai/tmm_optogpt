@@ -5,7 +5,9 @@ from typing import Iterable, List
 import numpy as np
 
 from app.schemas import CandidateResult, Layer, SimulationRequest, TargetSpectrum
-from app.services.tmm_service import interpolate_spectrum, simulate
+from app.services.tmm_service import _simulate_polarization, interpolate_spectrum
+from app.schemas.models import DesignRequirements, SimulationResult
+from app.services.design_service import score_requirements, verification_grid
 
 
 OPTOGPT_WAVELENGTHS = np.arange(400.0, 1101.0, 10.0)
@@ -44,9 +46,12 @@ def evaluate_candidate(
     target: TargetSpectrum,
     reflectance_weight: float = 1.0,
     transmittance_weight: float = 1.0,
+    requirements=None,
 ) -> CandidateResult:
     layers = parse_candidate(tokens)
-    simulation = simulate(
+    requirements = requirements or DesignRequirements(weight_r=reflectance_weight, weight_t=transmittance_weight)
+    grid = verification_grid(requirements)
+    physical = _simulate_polarization(
         SimulationRequest(
             layers=layers,
             wavelength_start_nm=400,
@@ -57,9 +62,13 @@ def evaluate_candidate(
             substrate_material="Glass_Substrate",
             substrate_thickness_nm=500_000,
             substrate_coherent=False,
-        )
+        ), grid, 's'
     )
-    target_r, target_t = normalize_target(target)
+    simulation = SimulationResult(wavelengths_nm=grid.tolist(), reflectance=physical['R'].tolist(),
+                                  transmittance=physical['T'].tolist(),
+                                  absorptance=(1 - physical['R'] - physical['T']).tolist(), max_energy_error=0)
+    target_r = interpolate_spectrum(target.wavelengths_nm, target.reflectance, grid)
+    target_t = interpolate_spectrum(target.wavelengths_nm, target.transmittance, grid)
     result_r = np.asarray(simulation.reflectance)
     result_t = np.asarray(simulation.transmittance)
     error_r = np.abs(result_r - target_r)
@@ -68,13 +77,8 @@ def evaluate_candidate(
     mae_t = float(error_t.mean())
     total_thickness = float(sum(layer.thickness_nm for layer in layers))
 
-    weight_sum = reflectance_weight + transmittance_weight
-    if weight_sum <= 0:
-        weight_sum = 1.0
-    spectral_score = (
-        reflectance_weight * mae_r + transmittance_weight * mae_t
-    ) / weight_sum
     complexity_penalty = len(layers) * 0.00015 + total_thickness * 0.0000001
+    metrics = score_requirements(target, requirements, grid, np.array([result_r, result_t]))
 
     return CandidateResult(
         tokens=tokens,
@@ -82,7 +86,8 @@ def evaluate_candidate(
         mae_r=mae_r,
         mae_t=mae_t,
         max_error=float(max(error_r.max(), error_t.max())),
-        score=float(spectral_score + complexity_penalty),
+        score=float(metrics['requirement_score'] + complexity_penalty),
+        **metrics,
         layer_count=len(layers),
         total_thickness_nm=total_thickness,
         simulation=simulation,

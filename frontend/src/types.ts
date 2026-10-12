@@ -64,7 +64,43 @@ export interface Material {
   wavelength_max_nm: number;
 }
 
+export interface SpectralBand {
+  channel: "R" | "T";
+  start_nm: number; end_nm: number;
+  kind: "match" | "minimum" | "maximum" | "ignore";
+  value: number; weight: number; tolerance: number;
+}
+export interface DesignRequirements {
+  schema_version: 1;
+  enabled_r: boolean; enabled_t: boolean;
+  weight_r: number; weight_t: number; tolerance: number;
+  scope: "full" | "bands";
+  completion: "no_absorption" | "reference";
+  bands: SpectralBand[];
+}
+export interface LayerConstraint {
+  index: number; material?: string | null; thickness_nm?: number | null;
+  min_nm?: number | null; max_nm?: number | null;
+}
+export interface ManufacturingConstraints {
+  min_thickness_nm: number; max_thickness_nm: number; layers: LayerConstraint[];
+}
+export interface DesignPreview {
+  model_target: TargetSpectrum; evaluation_wavelengths_nm: number[];
+  active_r_points: number; active_t_points: number; completion: string;
+  warnings?: string[];
+  constraints_checked?: boolean;
+}
+export interface CandidateDesignSnapshot {
+  model_target: TargetSpectrum; requirements: DesignRequirements; constraints: ManufacturingConstraints; reference_layers: Layer[];
+}
+
 export interface Candidate {
+  requirement_score?: number | null;
+  weighted_mae?: number | null;
+  max_violation?: number | null;
+  pass_rate?: number | null;
+  band_metrics?: {channel: "R" | "T"; start_nm: number; end_nm: number; kind: string; mae: number; max_violation: number; pass_rate: number}[];
   sources?: string[];
   rank: number;
   tokens: string[];
@@ -103,6 +139,10 @@ export interface InverseJob {
   progress: number;
   error?: { message: string } | null;
   result?: {
+    model_target?: TargetSpectrum;
+    requirements?: DesignRequirements;
+    constraints?: ManufacturingConstraints;
+    reference_layers?: Layer[];
     candidates: Candidate[];
     target?: TargetSpectrum;
     search_settings?: Record<string, unknown>;

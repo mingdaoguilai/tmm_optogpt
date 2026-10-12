@@ -2,19 +2,26 @@ import { NumberField } from "../components/NumberField";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { TargetEditor } from "../components/TargetEditor";
-import type { Candidate, InverseJob, TargetEditorState, TargetSpectrum } from "../types";
+import { DesignSettings } from "../components/DesignSettings";
+import type { Candidate, CandidateDesignSnapshot, DesignPreview, DesignRequirements, InverseJob, Layer, ManufacturingConstraints, Material, TargetEditorState, TargetSpectrum } from "../types";
 import { downloadText, formatPercent } from "../utils";
-import { validateSpectrum } from "../targetEditor";
+import { validateSettings } from "../designRequirements";
 
 interface InversePageProps {
   target: TargetSpectrum;
   editor: TargetEditorState;
   onEditorChange: (editor: TargetEditorState) => void;
-  onCandidatesChange: (candidates: Candidate[], snapshot: TargetSpectrum) => void;
+  requirements: DesignRequirements;
+  onRequirementsChange: (r: DesignRequirements) => void;
+  constraints: ManufacturingConstraints;
+  onConstraintsChange: (c: ManufacturingConstraints) => void;
+  referenceLayers: Layer[];
+  materials: Material[];
+  onCandidatesChange: (candidates: Candidate[], snapshot: TargetSpectrum, requirements?: DesignRequirements, design?: CandidateDesignSnapshot) => void;
   onUseCandidate: (candidate: Candidate) => void;
 }
 
-export function InversePage({ target, editor, onEditorChange, onCandidatesChange, onUseCandidate }: InversePageProps) {
+export function InversePage({ target, editor, onEditorChange, requirements, onRequirementsChange, constraints, onConstraintsChange, referenceLayers, materials, onCandidatesChange, onUseCandidate }: InversePageProps) {
   const [candidateCount, setCandidateCount] = useState(20);
   const [maxLayers, setMaxLayers] = useState(20);
   const [temperatures, setTemperatures] = useState([0.7, 0.85, 1.0]);
@@ -31,6 +38,21 @@ export function InversePage({ target, editor, onEditorChange, onCandidatesChange
   const [error, setError] = useState<string | null>(null);
   const submittedTarget = useRef<TargetSpectrum>(target);
   const [submitting, setSubmitting] = useState(false);
+  const previewPayload = {target, requirements, constraints, reference_layers:requirements.completion==="reference"?referenceLayers:[], max_layers:maxLayers};
+  const previewKey = JSON.stringify(previewPayload);
+  const [preview, setPreview] = useState<{key:string; data?:DesignPreview; error?:string} | null>(null);
+  const previewReady = preview?.key === previewKey && !!preview.data;
+  useEffect(() => {
+    let disposed = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        validateSettings(requirements, constraints);
+        const data = await api.designPreview(previewPayload);
+        if (!disposed) setPreview({key:previewKey,data});
+      } catch (caught) { if (!disposed) setPreview({key:previewKey,error:caught instanceof Error?caught.message:String(caught)}); }
+    }, 450);
+    return () => { disposed=true; window.clearTimeout(timer); };
+  }, [previewKey]);
   useEffect(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem('optiforge-inverse') || 'null');
@@ -62,7 +84,7 @@ export function InversePage({ target, editor, onEditorChange, onCandidatesChange
         const next = await api.inverseJob(job.id);
         if (cancelled) return;
         setJob(next);
-        if (next.status === "completed" && next.result) onCandidatesChange(next.result.candidates, submittedTarget.current);
+        if (next.status === "completed" && next.result) onCandidatesChange(next.result.candidates, next.result.target ?? submittedTarget.current, next.result.requirements, next.result.model_target && next.result.requirements && next.result.constraints ? {model_target:next.result.model_target, requirements:next.result.requirements, constraints:next.result.constraints, reference_layers:next.result.reference_layers ?? []} : undefined);
         if (next.status === "failed") setError(next.error?.message ?? next.message);
       } catch (caught) {
         if (cancelled) return;
@@ -74,13 +96,16 @@ export function InversePage({ target, editor, onEditorChange, onCandidatesChange
   }, [job?.id, job?.status]);
 
   const start = async () => {
-    try { validateSpectrum(target); } catch (caught) { setError((caught as Error).message); return; }
+    if (!previewReady) return;
     setSubmitting(true);
     submittedTarget.current = structuredClone(target);
     setError(null);
     try {
       setJob(await api.createInverseJob({
         target: submittedTarget.current,
+        requirements: structuredClone(requirements),
+        constraints: structuredClone(constraints),
+        reference_layers: structuredClone(previewPayload.reference_layers),
         candidate_count: candidateCount,
         max_layers: maxLayers,
         top_k: topK,
@@ -101,21 +126,21 @@ export function InversePage({ target, editor, onEditorChange, onCandidatesChange
   };
 
   const candidates = job?.result?.candidates ?? [];
-  let targetError = "";
-  try { validateSpectrum(target); } catch (caught) { targetError = (caught as Error).message; }
+  const targetError = preview?.key === previewKey ? preview.error ?? "" : "正在检查设计要求";
   const active = job && ["queued", "running"].includes(job.status);
   return (
     <main className="page-shell">
       <div className="page-title">
         <div><span className="eyebrow">INVERSE DESIGN · V4</span><h1>OptoGPT 逆向设计</h1><p>绘制自定义 R/T 目标，生成并验证候选膜系。</p></div>
         <div className="title-actions">
-          {active ? <button className="danger-button" onClick={() => api.cancelInverseJob(job.id).then(setJob).catch(e => setError(String(e)))}>停止</button> : <button className="primary-button" disabled={submitting || !!targetError} title={targetError} onClick={start}>{submitting ? "提交中…" : "生成候选"}</button>}
+          {active ? <button className="danger-button" onClick={() => api.cancelInverseJob(job.id).then(setJob).catch(e => setError(String(e)))}>停止</button> : <button className="primary-button" disabled={submitting || !previewReady} title={targetError} onClick={start}>{submitting ? "提交中…" : "生成候选"}</button>}
         </div>
       </div>
 
       {error && <div className="alert error-alert">{error}</div>}
       <div className="constraint-banner"><strong>当前模型边界</strong><span>400–1100 nm · 10 nm 采样 · 最多 20 层 · 模型材料词表 · 法向入射验证</span></div>
-      <TargetEditor value={editor} onChange={onEditorChange} />
+      <DesignSettings requirements={requirements} onRequirementsChange={onRequirementsChange} constraints={constraints} onConstraintsChange={onConstraintsChange} referenceLayers={referenceLayers} materials={materials} preview={previewReady?preview?.data:undefined} pending={preview?.key!==previewKey} error={targetError} />
+      <TargetEditor value={editor} onChange={onEditorChange} passiveValidation={false} modelInput={previewReady?preview?.data?.model_target:undefined} />
       <div className="workspace-grid inverse-grid">
         <section className="panel inverse-controls">
           <div className="panel-heading"><h2>生成设置</h2></div>
@@ -138,14 +163,14 @@ export function InversePage({ target, editor, onEditorChange, onCandidatesChange
             </div>
             <p className="search-help">Top-k 限制每步候选 token 数，Top-p 截取累计概率；低温度偏向高概率选择。Greedy 每步取最大概率，beam 同时保留多条序列。α 缓解长序列累积概率偏低的问题，不能保证光谱更准。</p>
           </details>
-          {job?.result?.search_summary && <div className="job-card"><strong>本次搜索统计</strong><p>随机抽样 {job.result.search_summary.sampled_count} 次 · 总输出 {job.result.search_summary.raw_count} 组 · 重复 {job.result.search_summary.duplicate_count} 组</p><p>已验证 {job.result.search_summary.verified_count} 组 · 保留 {job.result.search_summary.retained_count} 组</p><small>按 R/T 平均 MAE 优先排序，复杂度仅用于误差相同时排序。</small><button className="small-button" onClick={() => downloadText('optogpt-search-v3.json', JSON.stringify(job.result, null, 2))}>导出本次搜索（含参数和目标）</button></div>}
+          {job?.result?.search_summary && <div className="job-card"><strong>本次搜索统计</strong><p>随机抽样 {job.result.search_summary.sampled_count} 次 · 总输出 {job.result.search_summary.raw_count} 组 · 重复 {job.result.search_summary.duplicate_count} 组</p><p>已验证 {job.result.search_summary.verified_count} 组 · 保留 {job.result.search_summary.retained_count} 组</p><small>按要求违反误差优先排序，再按考核误差和复杂度排序。</small><button className="small-button" onClick={() => downloadText('optogpt-search-v4-requirements.json', JSON.stringify(job.result, null, 2))}>导出本次搜索（含参数和目标）</button></div>}
           <div className="target-stats"><span>目标点数<strong>{target.wavelengths_nm.length}</strong></span><span>波长范围<strong>{target.wavelengths_nm[0]}–{target.wavelengths_nm[target.wavelengths_nm.length - 1]} nm</strong></span></div>
           {job && <div className="job-card"><div className="job-title"><span>{job.message}</span><strong>{Math.round(job.progress * 100)}%</strong></div><div className="progress-track"><span style={{ width: `${job.progress * 100}%` }} /></div><small>阶段：{job.stage}</small></div>}
         </section>
         <section className="panel candidate-preview">
           <div className="panel-heading"><h2>候选预览</h2><span>{candidates.length ? `${candidates.length} 组已验证` : "等待生成"}</span></div>
           {candidates.length === 0 ? <div className="empty-state"><div className="empty-orbit">◎</div><h3>目标准备完成</h3><p>点击“生成候选”后，OptoGPT 将生成多组膜系并交给 TMM 评分。</p></div> :
-            <div className="candidate-list">{candidates.slice(0, 6).map((candidate) => <div className="candidate-card" key={candidate.rank}><div className="rank-badge">#{candidate.rank}</div><div className="candidate-main"><strong>{candidate.tokens.join(" / ")}</strong><span>{candidate.layer_count} 层 · {candidate.total_thickness_nm.toFixed(0)} nm · R MAE {formatPercent(candidate.mae_r)} · T MAE {formatPercent(candidate.mae_t)} · {candidate.sources?.join(" + ")}</span></div><button className="small-button" onClick={() => onUseCandidate(candidate)}>用于正向设计</button></div>)}</div>}
+            <div className="candidate-list">{candidates.slice(0, 6).map((candidate) => <div className="candidate-card" key={candidate.rank}><div className="rank-badge">#{candidate.rank}</div><div className="candidate-main"><strong>{candidate.tokens.join(" / ")}</strong><span>{candidate.layer_count} 层 · {candidate.total_thickness_nm.toFixed(0)} nm · R MAE {formatPercent(candidate.mae_r)} · T MAE {formatPercent(candidate.mae_t)} · {candidate.sources?.join(" + ")}</span>{candidate.requirement_score!=null && <span>违反要求 {formatPercent(candidate.requirement_score)} · 加权达标 {formatPercent(candidate.pass_rate ?? 0)}</span>}</div><button className="small-button" onClick={() => onUseCandidate(candidate)}>用于正向设计</button></div>)}</div>}
         </section>
       </div>
     </main>

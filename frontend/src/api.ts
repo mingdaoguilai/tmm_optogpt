@@ -5,6 +5,7 @@ import type {
   SimulationRequest,
   SimulationResult,
   TargetSpectrum,
+  DesignRequirements, ManufacturingConstraints, DesignPreview, Layer,
 } from "./types";
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -26,6 +27,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  designPreview: (payload: {target: TargetSpectrum; requirements: DesignRequirements; constraints: ManufacturingConstraints; reference_layers: Layer[]; max_layers: number}) => request<DesignPreview>("/api/inverse/preview", {method:"POST", body:JSON.stringify(payload)}),
+  capabilities: () => request<{materials: Record<string, number[]>}>("/api/inverse/capabilities"),
   health: () => request<HealthResponse>("/api/health"),
   materials: async () => {
     const result = await request<{ materials: Material[] }>("/api/materials");
@@ -37,6 +40,9 @@ export const api = {
       body: JSON.stringify(simulation),
     }),
   createInverseJob: (payload: {
+    requirements?: DesignRequirements;
+    constraints?: ManufacturingConstraints;
+    reference_layers?: Layer[];
     target: TargetSpectrum;
     candidate_count: number;
     max_layers: number;

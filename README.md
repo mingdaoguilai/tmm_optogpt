@@ -53,7 +53,7 @@ After setup, run the **Workbench: start** VS Code task or:
 On Windows, you can also double-click `start_workbench.cmd` in the project
 directory. The launcher uses `OPTOGPT_PYTHON` if configured, otherwise the
 existing `D:\anaconda\envs\optogpt\python.exe` when available, then `python`.
-The interface displays **OptiForge · V4** and backend version **0.4.0**.
+The interface displays **OptiForge · V4** and backend version **0.4.1**.
 The launcher reuses a running server only when its version and project directory
 match; otherwise it selects another local port. It opens the browser after the
 matching backend is ready. Closing the launch terminal stops that instance.
@@ -134,6 +134,20 @@ component settings while remaining able to load schema 1 projects.
 See [the target editor guide](docs/optogpt-v4-inputs.md). This release implements
 target input only; continuous thickness refinement remains planned.
 Rebuild `frontend/` and restart the backend to use version 0.4.0.
+
+### Version 4, part 2: design requirements and manufacturing boundaries
+
+Version 0.4.1 adds channel selection/weights, spectral bands, match/minimum/maximum
+requirements, tolerances and ignored intervals. A preview distinguishes original
+curves from the completed 142-value model input. Unspecified portions are helper
+inputs only and are never scored. Completion uses an explicit no-absorption
+assumption or a snapshot of the forward stack simulated at verification conditions.
+
+Global/per-layer thickness bounds and material/thickness locks filter tokens in
+sampling, greedy and beam search. Project schema 3 preserves requirements,
+constraints and candidate design snapshots while accepting schema 1/2 projects.
+See [the requirements guide](docs/optogpt-v4-requirements.md) for precise semantics
+and validation. Rebuild and restart for 0.4.1; thickness refinement remains planned.
 
 ## Run inverse design
 

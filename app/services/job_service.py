@@ -10,6 +10,9 @@ from typing import Dict
 from app.schemas import InverseJobRequest
 from app.services.evaluation_service import evaluate_candidate, target_vector
 from app.services.optogpt_service import optogpt_service
+from app.schemas.models import DesignRequirements, TargetSpectrum
+from app.services.design_service import prepare_design
+from app.services.constraint_service import check_structure
 
 
 class InverseJobManager:
@@ -66,7 +69,9 @@ class InverseJobManager:
                 message="Loading OptoGPT model",
                 progress=0.02,
             )
-            vector = target_vector(request.target)
+            requirements = request.requirements or DesignRequirements(weight_r=request.reflectance_weight, weight_t=request.transmittance_weight)
+            design = prepare_design(request.target, requirements, request.reference_layers)
+            vector = target_vector(TargetSpectrum(**design['model_target']))
 
             def generation_progress(value: float, message: str) -> None:
                 self._update(
@@ -90,6 +95,7 @@ class InverseJobManager:
                 include_greedy=request.include_greedy,
                 beam_width=request.beam_width,
                 length_penalty=request.length_penalty,
+                constraints=request.constraints,
                 progress=generation_progress,
                 cancelled=lambda: self._cancelled(job_id),
             )
@@ -102,6 +108,7 @@ class InverseJobManager:
 
             candidates = []
             for index, structure in enumerate(structures):
+                check_structure(structure, request.constraints)
                 if self._cancelled(job_id):
                     self._update(job_id, status="cancelled", stage="cancelled", progress=1.0)
                     return
@@ -117,14 +124,17 @@ class InverseJobManager:
                         request.target,
                         reflectance_weight=request.reflectance_weight,
                         transmittance_weight=request.transmittance_weight,
+                        requirements=requirements,
                     )
                 )
 
+            if self._cancelled(job_id):
+                self._update(job_id, status="cancelled", stage="cancelled", progress=1.0)
+                return
             for candidate in candidates:
                 candidate.sources = search["provenance"].get(tuple(candidate.tokens), [])
             candidates.sort(key=lambda item: (
-                (request.reflectance_weight * item.mae_r + request.transmittance_weight * item.mae_t)
-                / (request.reflectance_weight + request.transmittance_weight), item.score))
+                item.requirement_score, item.weighted_mae, item.score))
             verified_count = len(candidates)
             candidates = candidates[:request.candidate_count]
             for rank, candidate in enumerate(candidates, start=1):
@@ -139,7 +149,9 @@ class InverseJobManager:
                         "search_summary": {**search["summary"], "verified_count": verified_count,
                                            "retained_count": len(candidates)},
                         "search_settings": request.model_dump(exclude={"target"}),
-                        "target": request.target.model_dump()},
+                        "target": request.target.model_dump(), "model_target": design['model_target'],
+                        "requirements": requirements.model_dump(), "constraints": request.constraints.model_dump(),
+                        "reference_layers": [layer.model_dump() for layer in request.reference_layers]},
             )
         except Exception as error:  # pragma: no cover - surfaced through job API
             self._update(

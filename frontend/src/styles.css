@@ -78,6 +78,13 @@ label { display: grid; gap: 6px; color: #8f9db5; font-size: 10px; letter-spacing
 }
 
 /* v4 target input */
+.design-settings { margin: 16px 0; }
+.band-rule { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 12px 0; }
+.band-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.band-rule .form-grid { padding: 12px 0 0; }
+.four-columns { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.requirements-summary { border-radius: 7px; background: #122b36; padding: 12px; font-size: 12px; line-height: 1.65; }
+@media (max-width: 900px) { .four-columns { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 .brand { gap: 8px; padding: 0 4px; }.brand-mark { flex-shrink: 0; }.brand strong { font-size: 15px; white-space: nowrap; }
 .spectrum-editor { margin: 16px 0; }
 .spectrum-editor-body { padding: 16px 20px; }

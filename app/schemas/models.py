@@ -114,8 +114,97 @@ class TargetEditorState(BaseModel):
     source_spectrum: Optional[TargetSpectrum] = None
 
 
+class SpectralBand(BaseModel):
+    channel: Literal["R", "T"] = "T"
+    start_nm: float = Field(default=550, ge=400, le=1100, allow_inf_nan=False)
+    end_nm: float = Field(default=650, ge=400, le=1100, allow_inf_nan=False)
+    kind: Literal["match", "minimum", "maximum", "ignore"] = "match"
+    value: float = Field(default=0.9, ge=0, le=1, allow_inf_nan=False)
+    weight: float = Field(default=1, ge=0, le=1000, allow_inf_nan=False)
+    tolerance: float = Field(default=0.02, ge=0, le=1, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "SpectralBand":
+        if self.end_nm <= self.start_nm:
+            raise ValueError("波段终点必须大于起点")
+        return self
+
+
+class DesignRequirements(BaseModel):
+    schema_version: Literal[1] = 1
+    enabled_r: bool = True
+    enabled_t: bool = True
+    weight_r: float = Field(default=1, ge=0, le=1000, allow_inf_nan=False)
+    weight_t: float = Field(default=1, ge=0, le=1000, allow_inf_nan=False)
+    tolerance: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
+    scope: Literal["full", "bands"] = "full"
+    completion: Literal["no_absorption", "reference"] = "no_absorption"
+    bands: List[SpectralBand] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_bands(self) -> "DesignRequirements":
+        for i, first in enumerate(self.bands):
+            for second in self.bands[i + 1:]:
+                if (first.channel == second.channel and first.kind != "ignore" and second.kind != "ignore"
+                        and max(first.start_nm, second.start_nm) < min(first.end_nm, second.end_nm)):
+                    raise ValueError("同一通道的考核波段不能重叠；不关心区间可覆盖考核波段")
+        return self
+
+
+class LayerConstraint(BaseModel):
+    index: int = Field(ge=1, le=20)
+    material: Optional[str] = None
+    thickness_nm: Optional[float] = Field(default=None, gt=0, le=1000000, allow_inf_nan=False)
+    min_nm: Optional[float] = Field(default=None, gt=0, le=1000000, allow_inf_nan=False)
+    max_nm: Optional[float] = Field(default=None, gt=0, le=1000000, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_rule(self) -> "LayerConstraint":
+        if self.material is not None and not self.material.strip():
+            raise ValueError("锁定材料不能为空")
+        if all(v is None for v in (self.material, self.thickness_nm, self.min_nm, self.max_nm)):
+            raise ValueError("逐层约束至少需要材料、厚度或边界之一")
+        return self
+
+
+class ManufacturingConstraints(BaseModel):
+    min_thickness_nm: float = Field(default=10, gt=0, le=1000000, allow_inf_nan=False)
+    max_thickness_nm: float = Field(default=500, gt=0, le=1000000, allow_inf_nan=False)
+    layers: List[LayerConstraint] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "ManufacturingConstraints":
+        if self.min_thickness_nm > self.max_thickness_nm:
+            raise ValueError("最小厚度不能大于最大厚度")
+        if len({layer.index for layer in self.layers}) != len(self.layers):
+            raise ValueError("同一层只能有一条逐层约束")
+        for layer in self.layers:
+            low = max(self.min_thickness_nm, layer.min_nm or self.min_thickness_nm)
+            high = min(self.max_thickness_nm, layer.max_nm or self.max_thickness_nm)
+            if low > high or (layer.thickness_nm is not None and not low <= layer.thickness_nm <= high):
+                raise ValueError(f"第 {layer.index} 层的厚度或边界与全局范围冲突")
+        return self
+
+
+class DesignPreviewRequest(BaseModel):
+    target: TargetSpectrum
+    requirements: DesignRequirements = Field(default_factory=DesignRequirements)
+    constraints: ManufacturingConstraints = Field(default_factory=ManufacturingConstraints)
+    reference_layers: List[Layer] = Field(default_factory=list, max_length=20)
+    max_layers: int = Field(default=20, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def validate_layers(self) -> "DesignPreviewRequest":
+        if any(rule.index > self.max_layers for rule in self.constraints.layers):
+            raise ValueError("逐层约束编号不能超过最大层数")
+        return self
+
+
 class InverseJobRequest(BaseModel):
     target: TargetSpectrum
+    requirements: Optional[DesignRequirements] = None
+    constraints: ManufacturingConstraints = Field(default_factory=ManufacturingConstraints)
+    reference_layers: List[Layer] = Field(default_factory=list, max_length=20)
     candidate_count: int = Field(default=20, ge=1, le=100)
     max_layers: int = Field(default=20, ge=1, le=20)
     top_k: int = Field(default=10, ge=1, le=1000)
@@ -128,13 +217,15 @@ class InverseJobRequest(BaseModel):
     length_penalty: float = Field(default=0.6, ge=0, le=2)
     temperature: float = Field(default=1.0, gt=0, le=5)
     seed: int = Field(default=42, ge=0, le=2**32 - 1)
-    reflectance_weight: float = Field(default=1.0, ge=0)
-    transmittance_weight: float = Field(default=1.0, ge=0)
+    reflectance_weight: float = Field(default=1.0, ge=0, allow_inf_nan=False)
+    transmittance_weight: float = Field(default=1.0, ge=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def validate_search(self) -> "InverseJobRequest":
-        if any(r + t > 1 + 1e-8 for r, t in zip(self.target.reflectance, self.target.transmittance)):
+        if self.requirements is None and any(r + t > 1 + 1e-8 for r, t in zip(self.target.reflectance, self.target.transmittance)):
             raise ValueError("Passive target requires R + T <= 1 at every wavelength")
+        if any(rule.index > self.max_layers for rule in self.constraints.layers):
+            raise ValueError("逐层约束编号不能超过最大层数")
         # Legacy clients can still supply a single temperature.
         if self.temperatures is None:
             self.temperatures = ([self.temperature] if "temperature" in self.model_fields_set
@@ -159,16 +250,33 @@ class CandidateResult(BaseModel):
     mae_t: float
     max_error: float
     score: float
+    requirement_score: Optional[float] = None
+    weighted_mae: Optional[float] = None
+    max_violation: Optional[float] = None
+    pass_rate: Optional[float] = None
+    band_metrics: List[dict] = Field(default_factory=list)
     layer_count: int
     total_thickness_nm: float
     simulation: SimulationResult
 
 
+class CandidateDesignSnapshot(BaseModel):
+    model_config = {"protected_namespaces": ()}
+    model_target: TargetSpectrum
+    requirements: DesignRequirements
+    constraints: ManufacturingConstraints
+    reference_layers: List[Layer] = Field(default_factory=list)
+
+
 class ProjectDocument(BaseModel):
-    schema_version: Literal[1, 2] = 2
+    schema_version: Literal[1, 2, 3] = 3
     name: str = "Untitled project"
     simulation: SimulationRequest
     target: Optional[TargetSpectrum] = None
     target_editor: Optional[TargetEditorState] = None
+    design_requirements: DesignRequirements = Field(default_factory=DesignRequirements)
+    manufacturing_constraints: ManufacturingConstraints = Field(default_factory=ManufacturingConstraints)
+    candidate_requirements: Optional[DesignRequirements] = None
+    candidate_design_snapshot: Optional[CandidateDesignSnapshot] = None
     candidate_target: Optional[TargetSpectrum] = None
     candidates: List[CandidateResult] = Field(default_factory=list)

@@ -1,18 +1,18 @@
 import { useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { NumberField } from "./NumberField";
-import type { ControlPoint, TargetEditorState } from "../types";
+import type { ControlPoint, TargetEditorState, TargetSpectrum } from "../types";
 import { createTarget, downloadText, parseTargetCsv, type TargetTemplate } from "../utils";
 import { applyGenerator, editorFromSpectrum, editorToSpectrum, interpolatePoints, modelWavelengths, setChannelPoints, spectrumToCsv, validateEditor, validateSpectrum } from "../targetEditor";
 
-type Props = { value: TargetEditorState; onChange: (value: TargetEditorState) => void };
+type Props = { value: TargetEditorState; onChange: (value: TargetEditorState) => void; passiveValidation?: boolean; modelInput?: TargetSpectrum };
 const X0 = 52, Y0 = 22, WIDTH = 688, HEIGHT = 232;
 const px = (x: number) => X0 + (x - 400) * WIDTH / 700;
 const py = (v: number) => Y0 + (1 - v) * HEIGHT;
 const percent = (value: number) => Number((value * 100).toFixed(4));
 const clamp = (v: number, low: number, high: number) => Math.max(low, Math.min(high, v));
 
-export function TargetEditor({ value, onChange }: Props) {
+export function TargetEditor({ value, onChange, passiveValidation = true, modelInput }: Props) {
   const [past, setPast] = useState<TargetEditorState[]>([]);
   const [future, setFuture] = useState<TargetEditorState[]>([]);
   const [draft, setDraft] = useState<TargetEditorState | null>(null);
@@ -29,9 +29,9 @@ export function TargetEditor({ value, onChange }: Props) {
   const index = Math.min(selected, points.length - 1);
   const point = points[index];
   let warning = "";
-  try { validateSpectrum(spectrum); } catch (caught) { warning = (caught as Error).message; }
+  try { validateSpectrum(spectrum, passiveValidation); } catch (caught) { warning = (caught as Error).message; }
   const path = (values: number[]) => spectrum.wavelengths_nm.map((x, i) => `${i ? "L" : "M"}${px(x).toFixed(2)},${py(values[i]).toFixed(2)}`).join(" ");
-  const modelValues = interpolatePoints(spectrum.wavelengths_nm.map((wavelength_nm, i) => ({ wavelength_nm, value: working.channel === "R" ? spectrum.reflectance[i] : spectrum.transmittance[i] })), modelWavelengths, "linear");
+  const modelValues = modelInput ? (working.channel === "R" ? modelInput.reflectance : modelInput.transmittance) : interpolatePoints(spectrum.wavelengths_nm.map((wavelength_nm, i) => ({ wavelength_nm, value: working.channel === "R" ? spectrum.reflectance[i] : spectrum.transmittance[i] })), modelWavelengths, "linear");
   const modelPath = modelWavelengths.map((x, i) => `${i ? "L" : "M"}${px(x)},${py(modelValues[i])}`).join(" ");
   const reconstructed = interpolatePoints(modelWavelengths.map((wavelength_nm, i) => ({ wavelength_nm, value: modelValues[i] })), spectrum.wavelengths_nm, "linear");
   const mismatch = reconstructed.reduce((largest, v, i) => Math.max(largest, Math.abs(v - (working.channel === "R" ? spectrum.reflectance[i] : spectrum.transmittance[i]))), 0);
@@ -142,7 +142,7 @@ export function TargetEditor({ value, onChange }: Props) {
         }} />)}
       </svg>
       <div className="editor-legend"><span className="r">● 目标 R</span><span className="t">● 目标 T</span><label className="editor-check"><input type="checkbox" checked={showModel} onChange={e => setShowModel(e.target.checked)} />虚线：当前通道的模型输入（10 nm）</label></div>
-      {mismatch > 0.02 && <p className="editor-warning" role="status">当前曲线含有细于模型采样网格的变化，重采样后最大偏差约 {(mismatch * 100).toFixed(1)} 个百分点。拖拽精度不会改变模型的10 nm输入限制。</p>}
+      {mismatch > 0.02 && <p className="editor-warning" role="status">当前原始曲线与模型输入（含补全及重采样）不同，最大偏差约 {(mismatch * 100).toFixed(1)} 个百分点。拖拽精度不会改变模型的10 nm输入限制。</p>}
       <div className="editor-point-controls">
         <label>选中控制点<select value={index} onChange={e => setSelected(Number(e.target.value))}>{points.map((p, i) => <option key={i} value={i}>{i + 1} · {p.wavelength_nm.toFixed(2)} nm</option>)}</select></label>
         <label>控制点波长<NumberField value={point.wavelength_nm} onChange={x => editPoint(x, point.value)} min={limits(index).min} max={limits(index).max} unit="nm" step={1} disabled={index === 0 || index === points.length - 1} /></label>

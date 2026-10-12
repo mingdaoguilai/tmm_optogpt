@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from app.services.decoding import beam_decode, sampling_probabilities
+from app.services.constraint_service import compile_token_masks
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -95,6 +96,27 @@ class OptoGPTService:
         return torch.log_softmax(logits, dim=-1)
 
     @torch.inference_mode()
+    def _constrained_log_probs(self, target, ids, token_masks=None):
+        logits = self._next_log_probs(target, ids)
+        if token_masks is not None:
+            logits = logits.clone().masked_fill(~token_masks[len(ids)], -torch.inf)
+            if not torch.isfinite(logits).any():
+                raise ValueError("当前层在工艺约束下没有可生成的 token")
+            logits = torch.log_softmax(logits, dim=-1)
+        return logits
+
+    def capabilities(self):
+        self.load()
+        by_material = {}
+        for word in self.word_to_id:
+            try:
+                material, thickness = word.rsplit('_', 1)
+                by_material.setdefault(material, []).append(float(thickness))
+            except ValueError:
+                continue
+        return {"materials": {m: sorted(set(t)) for m, t in by_material.items()}}
+
+    @torch.inference_mode()
     def sample(
         self,
         spectrum_target: np.ndarray,
@@ -105,6 +127,7 @@ class OptoGPTService:
         generator=None,
         greedy: bool = False,
         cancelled: Optional[CancelCallback] = None,
+        token_masks=None,
     ) -> List[str]:
         self.load()
 
@@ -124,7 +147,7 @@ class OptoGPTService:
         for _ in range(max_layers):
             if cancelled and cancelled():
                 return []
-            logits = self._next_log_probs(target, ids)
+            logits = self._constrained_log_probs(target, ids, token_masks)
             if greedy:
                 next_id = int(torch.argmax(logits))
             else:
@@ -153,8 +176,11 @@ class OptoGPTService:
         include_greedy: bool = True,
         beam_width: int = 5,
         length_penalty: float = 0.6,
+        constraints=None,
     ) -> dict:
         self.load()
+        token_masks = (compile_token_masks(self.word_to_id, constraints, max_layers, self.device)
+                       if constraints is not None else None)
         target = np.asarray(spectrum_target, dtype=np.float32)
         if target.shape != (int(self.config.spec_dim),) or not np.all(np.isfinite(target)):
             raise ValueError("Invalid target spectrum shape or nonfinite values")
@@ -195,6 +221,7 @@ class OptoGPTService:
                 max_layers=max_layers,
                 generator=rng,
                 cancelled=cancelled,
+                token_masks=token_masks,
             )
             if cancelled():
                 break
@@ -209,11 +236,11 @@ class OptoGPTService:
             if progress:
                 progress(0.86, "正在生成 greedy 候选")
             add(self.sample(target, top_k, 1.0, max_layers, greedy=True,
-                            cancelled=cancelled), "greedy")
+                            cancelled=cancelled, token_masks=token_masks), "greedy")
         if beam_width and not cancelled():
             if progress:
                 progress(0.9, "正在进行长度归一化 beam search")
-            beams = beam_decode(lambda ids: self._next_log_probs(target, ids),
+            beams = beam_decode(lambda ids: self._constrained_log_probs(target, ids, token_masks),
                                 self.word_to_id["EOS"], max_layers, beam_width,
                                 length_penalty, cancelled)
             for ids in beams:

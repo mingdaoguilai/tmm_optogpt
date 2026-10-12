@@ -14,6 +14,9 @@ from app.services.job_service import inverse_job_manager
 from app.services.material_service import MaterialNotFoundError, material_service
 from app.services.optogpt_service import optogpt_service
 from app.services.tmm_service import simulate
+from app.schemas.models import DesignPreviewRequest
+from app.services.design_service import prepare_design
+from app.services.constraint_service import compile_token_masks
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -73,12 +76,35 @@ def create_inverse_job(request: InverseJobRequest) -> dict:
             detail=f"OptoGPT checkpoint not found at {optogpt_service.model_path}",
         )
     try:
+        if request.requirements is not None:
+            prepare_design(request.target, request.requirements, request.reference_layers)
+        if optogpt_service.loaded:
+            compile_token_masks(optogpt_service.word_to_id, request.constraints, request.max_layers, optogpt_service.device)
         target_vector = request.target
         if len(target_vector.wavelengths_nm) < 2:
             raise ValueError("Target spectrum must contain at least two points")
         return inverse_job_manager.create(request)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/inverse/preview")
+def preview_design(request: DesignPreviewRequest) -> dict:
+    try:
+        result = prepare_design(request.target, request.requirements, request.reference_layers)
+        if optogpt_service.loaded:
+            compile_token_masks(optogpt_service.word_to_id, request.constraints, request.max_layers, optogpt_service.device)
+        return {**result, "constraints_checked": optogpt_service.loaded}
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/inverse/capabilities")
+def inverse_capabilities() -> dict:
+    try:
+        return optogpt_service.capabilities()
+    except (ValueError, FileNotFoundError) as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.get("/api/inverse/jobs/{job_id}")

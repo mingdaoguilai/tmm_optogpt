@@ -8,19 +8,21 @@ const ts = require('typescript');
 // Compile pure TS utilities in memory; no new runtime dependency or build files.
 const cache = new Map();
 function load(name) {
-  const filename = path.resolve(__dirname, '../src', name + '.ts');
+  const candidate = path.resolve(__dirname, '../src', name);
+  const filename = fs.existsSync(candidate + '.ts') ? candidate + '.ts' : candidate + '.tsx';
   if (cache.has(filename)) return cache.get(filename).exports;
   const mod = new Module(filename, module);
   cache.set(filename, mod);
   mod.filename = filename;
   mod.paths = module.paths;
-  mod.require = requested => requested.startsWith('./') ? load(requested.slice(2)) : require(requested);
-  const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } });
+  mod.require = requested => requested.startsWith('.') ? load(path.relative(path.resolve(__dirname,'../src'),path.resolve(path.dirname(filename),requested))) : require(requested);
+  const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx:ts.JsxEmit.ReactJSX } });
   mod._compile(compiled.outputText, filename);
   return mod.exports;
 }
 const editor = load('targetEditor');
 const utils = load('utils');
+const settings = load('designRequirements');
 const close = (a, b, tolerance = 1e-10) => assert.ok(Math.abs(a - b) < tolerance, `${a} != ${b}`);
 const seedTarget = { wavelengths_nm: [400, 650, 1100], reflectance: [0.1, 0.8, 0.2], transmittance: [0.9, 0.2, 0.8] };
 
@@ -89,4 +91,36 @@ test('invalid passive targets are editable drafts but cannot be submitted', () =
   editor.validateEditor(state);
   assert.throws(() => editor.validateSpectrum(editor.editorToSpectrum(state)), /R \+ T/);
   assert.throws(() => editor.validateEditor({ ...state, points: { ...state.points, R: [state.points.R[0], state.points.R[0]] } }));
+});
+
+test('requirements and manufacturing boundaries serialize independently of curve data', () => {
+  const rules = {...settings.defaultRequirements,enabled_r:false,scope:'bands',bands:[{channel:'T',start_nm:550,end_nm:650,kind:'minimum',value:0.9,tolerance:0.02,weight:2}]};
+  const constraints = {...settings.defaultConstraints,layers:[{index:2,material:'TiO2',thickness_nm:100}]};
+  const restored = JSON.parse(JSON.stringify({rules,constraints}));
+  settings.validateSettings(restored.rules,restored.constraints);
+  assert.deepEqual(restored,{rules,constraints});
+});
+test('restored malformed bands and contradictory layer limits fail explicitly', () => {
+  const rules = {...settings.defaultRequirements,bands:[{channel:'T',start_nm:650,end_nm:550,kind:'match',value:0.9,tolerance:0,weight:1}]};
+  assert.throws(()=>settings.validateSettings(rules,settings.defaultConstraints));
+  assert.throws(()=>settings.validateSettings(settings.defaultRequirements,{...settings.defaultConstraints,min_thickness_nm:200,layers:[{index:1,thickness_nm:100}]}));
+  assert.throws(()=>settings.validateSettings(settings.defaultRequirements,{...settings.defaultConstraints,layers:[{index:1,material:'SiO2'},{index:1,material:'TiO2'}]}));
+});
+
+test('requirements panel renders restored T-only threshold and locked-layer settings', () => {
+  const React=require('react');
+  const {renderToStaticMarkup}=require('react-dom/server');
+  const {DesignSettings}=load('components/DesignSettings');
+  const html=renderToStaticMarkup(React.createElement(DesignSettings,{
+    requirements:{...settings.defaultRequirements,enabled_r:false,scope:'bands',bands:[{channel:'T',start_nm:550,end_nm:650,kind:'minimum',value:0.9,tolerance:0.02,weight:1}]},
+    constraints:{...settings.defaultConstraints,layers:[{index:2,material:'TiO2',thickness_nm:100}]},
+    onRequirementsChange:()=>{},onConstraintsChange:()=>{},referenceLayers:[],materials:[],pending:false,
+    preview:{active_r_points:0,active_t_points:11,evaluation_wavelengths_nm:Array(71)}
+  }));
+  assert.match(html,/设计要求与工艺边界/);
+  assert.match(html,/至少 ≥/);
+  assert.match(html,/value="90"/);
+  assert.match(html,/value="100"/);
+  assert.match(html,/TiO2/);
+  assert.match(html,/锁定厚度/);
 });
