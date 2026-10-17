@@ -92,10 +92,19 @@ export interface DesignPreview {
   constraints_checked?: boolean;
 }
 export interface CandidateDesignSnapshot {
+  refinement?: RefinementSettings;
   model_target: TargetSpectrum; requirements: DesignRequirements; constraints: ManufacturingConstraints; reference_layers: Layer[];
 }
 
 export interface Candidate {
+  refinement?: {
+    accepted: boolean; status: string; message: string;
+    evaluations: number; starts_completed: number; elapsed_s: number;
+    optimization_step_nm: number; verification_step_nm: number;
+    initial_layers: Layer[]; initial_simulation: SimulationResult;
+    initial_metrics: { requirement_score: number; weighted_mae: number; pass_rate: number };
+    solver_messages: string[];
+  } | null;
   requirement_score?: number | null;
   weighted_mae?: number | null;
   max_violation?: number | null;
@@ -139,6 +148,7 @@ export interface InverseJob {
   progress: number;
   error?: { message: string } | null;
   result?: {
+    refinement?: RefinementSettings;
     model_target?: TargetSpectrum;
     requirements?: DesignRequirements;
     constraints?: ManufacturingConstraints;
@@ -155,3 +165,9 @@ export interface InverseJob {
 }
 
 export type PageId = "forward" | "inverse" | "compare" | "materials";
+
+export interface RefinementSettings {
+  enabled: boolean; candidate_count: number; starts: number; max_evaluations: number;
+  time_budget_s: number; perturbation: number; optimization_step_nm: 2 | 5;
+  verification_step_nm: 1 | 2; loss: "linear" | "huber";
+}

@@ -7,9 +7,10 @@ interface SpectrumPlotProps {
   candidates?: Candidate[];
   compact?: boolean;
   channel?: "R" | "T";
+  showInitial?: boolean;
 }
 
-export function SpectrumPlot({ simulation, target, candidates = [], compact = false, channel = "R" }: SpectrumPlotProps) {
+export function SpectrumPlot({ simulation, target, candidates = [], compact = false, channel = "R", showInitial = false }: SpectrumPlotProps) {
   const data: Plotly.Data[] = [];
   if (target) {
     data.push(
@@ -61,10 +62,16 @@ export function SpectrumPlot({ simulation, target, candidates = [], compact = fa
   }
   candidates.forEach((candidate, index) => {
     const palette = ["#a78bfa", "#fb7185", "#38bdf8", "#f59e0b"];
+    if (showInitial && candidate.refinement) {
+      const before = candidate.refinement.initial_simulation;
+      data.push({ x:before.wavelengths_nm, y:channel==='R'?before.reflectance:before.transmittance,
+        name:`#${candidate.rank} 精修前 ${channel}`, type:'scatter', mode:'lines',
+        line:{color:palette[index % palette.length], width:1.3, dash:'dash'} });
+    }
     data.push({
       x: candidate.simulation.wavelengths_nm,
       y: channel === "R" ? candidate.simulation.reflectance : candidate.simulation.transmittance,
-      name: `#${candidate.rank} ${channel}`,
+      name: `#${candidate.rank} ${candidate.refinement?.accepted ? '精修后 ' : ''}${channel}`,
       type: "scatter",
       mode: "lines",
       line: { color: palette[index % palette.length], width: 1.8 },

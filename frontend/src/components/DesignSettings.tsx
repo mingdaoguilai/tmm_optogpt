@@ -69,7 +69,7 @@ export function DesignSettings({requirements: r, onRequirementsChange: setR, con
           {vocabulary && l.material && <p className="search-help">{l.material} 可生成厚度：{vocabulary[l.material]?.join(" / ") || "不在模型词表"} nm</p>}
         </div>)}
         <button className="secondary-button" disabled={c.layers.length>=20} onClick={() => {const index=Array.from({length:20},(_,i)=>i+1).find(i=>!c.layers.some(l=>l.index===i));if(index)setC({...c,layers:[...c.layers,{index,material:"SiO2"}]});}}>添加逐层约束</button>
-        <p className="search-help">层编号从入射侧开始。约束层必须存在；全局范围与逐层范围取交集。随机、greedy、beam 都遵守同一边界，锁定厚度必须存在于模型词表，不会自动取整。连续厚度精修在下一阶段接入。</p>
+      <p className="search-help">层编号从入射侧开始。约束层必须存在；全局范围与逐层范围取交集。随机、greedy、beam 都遵守同一边界，锁定厚度必须存在于模型词表，不会自动取整。生成设置中可开启连续厚度精修，精修仍遵守这些边界和厚度锁。</p>
       </details>
     </div>
   </section>;

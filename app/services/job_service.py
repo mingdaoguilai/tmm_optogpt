@@ -13,6 +13,7 @@ from app.services.optogpt_service import optogpt_service
 from app.schemas.models import DesignRequirements, TargetSpectrum
 from app.services.design_service import prepare_design
 from app.services.constraint_service import check_structure
+from app.services.refinement_service import refine_candidates, ranking
 
 
 class InverseJobManager:
@@ -38,7 +39,7 @@ class InverseJobManager:
         }
         with self._lock:
             self._jobs[job_id] = job
-        self._executor.submit(self._run, job_id, request)
+        self._executor.submit(self._run, job_id, request.model_copy(deep=True))
         return self.get(job_id)
 
     def get(self, job_id: str) -> dict:
@@ -48,6 +49,8 @@ class InverseJobManager:
             return dict(self._jobs[job_id])
 
     def cancel(self, job_id: str) -> dict:
+        if self.get(job_id)["status"] in ("completed", "failed", "cancelled"):
+            return self.get(job_id)
         self._update(job_id, cancel_requested=True, message="Cancellation requested")
         return self.get(job_id)
 
@@ -107,6 +110,22 @@ class InverseJobManager:
                 raise RuntimeError("OptoGPT did not generate a valid candidate")
 
             candidates = []
+            verified_count = 0
+
+            def publish(values):
+                values = sorted(values, key=ranking)[:request.candidate_count]
+                for rank, value in enumerate(values, 1):
+                    value.rank = rank
+                self._update(job_id, result={
+                    "candidates": [value.model_dump() for value in values],
+                    "search_summary": {**search["summary"], "verified_count": verified_count,
+                                       "retained_count": len(values)},
+                    "search_settings": request.model_dump(exclude={"target"}),
+                    "target": request.target.model_dump(), "model_target": design['model_target'],
+                    "requirements": requirements.model_dump(), "constraints": request.constraints.model_dump(),
+                    "refinement": request.refinement.model_dump(),
+                    "reference_layers": [layer.model_dump() for layer in request.reference_layers]})
+
             for index, structure in enumerate(structures):
                 check_structure(structure, request.constraints)
                 if self._cancelled(job_id):
@@ -116,7 +135,7 @@ class InverseJobManager:
                     job_id,
                     stage="verification",
                     message=f"TMM verification {index + 1} of {len(structures)}",
-                    progress=0.55 + (index / len(structures)) * 0.43,
+                    progress=0.55 + (index / len(structures)) * (0.15 if request.refinement.enabled else 0.43),
                 )
                 candidates.append(
                     evaluate_candidate(
@@ -127,31 +146,32 @@ class InverseJobManager:
                         requirements=requirements,
                     )
                 )
+                candidates[-1].sources = search["provenance"].get(tuple(structure), [])
+                verified_count += 1
+                publish(candidates)
 
             if self._cancelled(job_id):
                 self._update(job_id, status="cancelled", stage="cancelled", progress=1.0)
                 return
-            for candidate in candidates:
-                candidate.sources = search["provenance"].get(tuple(candidate.tokens), [])
-            candidates.sort(key=lambda item: (
-                item.requirement_score, item.weighted_mae, item.score))
-            verified_count = len(candidates)
+            candidates.sort(key=ranking)
+            if request.refinement.enabled:
+                candidates = refine_candidates(candidates, request.target, requirements,
+                    request.constraints, request.refinement, request.seed, request.candidate_count,
+                    cancelled=lambda: self._cancelled(job_id),
+                    progress=lambda value, message: self._update(job_id, stage="refinement",
+                        progress=.70 + .28 * value, message=message), publish=publish)
             candidates = candidates[:request.candidate_count]
-            for rank, candidate in enumerate(candidates, start=1):
-                candidate.rank = rank
+            publish(candidates)
+            if self._cancelled(job_id):
+                self._update(job_id, status="cancelled", stage="cancelled", progress=1.,
+                             message="任务已取消，保留已验证结果（包含已完成的精修改善）")
+                return
             self._update(
                 job_id,
                 status="completed",
                 stage="completed",
                 message=f"已验证 {verified_count} 组 · 保留最优 {len(candidates)} 组",
                 progress=1.0,
-                result={"candidates": [candidate.model_dump() for candidate in candidates],
-                        "search_summary": {**search["summary"], "verified_count": verified_count,
-                                           "retained_count": len(candidates)},
-                        "search_settings": request.model_dump(exclude={"target"}),
-                        "target": request.target.model_dump(), "model_target": design['model_target'],
-                        "requirements": requirements.model_dump(), "constraints": request.constraints.model_dump(),
-                        "reference_layers": [layer.model_dump() for layer in request.reference_layers]},
             )
         except Exception as error:  # pragma: no cover - surfaced through job API
             self._update(

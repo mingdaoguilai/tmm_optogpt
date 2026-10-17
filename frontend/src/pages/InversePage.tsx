@@ -6,8 +6,12 @@ import { DesignSettings } from "../components/DesignSettings";
 import type { Candidate, CandidateDesignSnapshot, DesignPreview, DesignRequirements, InverseJob, Layer, ManufacturingConstraints, Material, TargetEditorState, TargetSpectrum } from "../types";
 import { downloadText, formatPercent } from "../utils";
 import { validateSettings } from "../designRequirements";
+import type { RefinementSettings } from "../types";
+import { RefinementSettingsPanel } from "../components/RefinementSettingsPanel";
 
 interface InversePageProps {
+  refinement: RefinementSettings;
+  onRefinementChange: (value: RefinementSettings) => void;
   target: TargetSpectrum;
   editor: TargetEditorState;
   onEditorChange: (editor: TargetEditorState) => void;
@@ -21,7 +25,7 @@ interface InversePageProps {
   onUseCandidate: (candidate: Candidate) => void;
 }
 
-export function InversePage({ target, editor, onEditorChange, requirements, onRequirementsChange, constraints, onConstraintsChange, referenceLayers, materials, onCandidatesChange, onUseCandidate }: InversePageProps) {
+export function InversePage({ refinement, onRefinementChange, target, editor, onEditorChange, requirements, onRequirementsChange, constraints, onConstraintsChange, referenceLayers, materials, onCandidatesChange, onUseCandidate }: InversePageProps) {
   const [candidateCount, setCandidateCount] = useState(20);
   const [maxLayers, setMaxLayers] = useState(20);
   const [temperatures, setTemperatures] = useState([0.7, 0.85, 1.0]);
@@ -84,7 +88,7 @@ export function InversePage({ target, editor, onEditorChange, requirements, onRe
         const next = await api.inverseJob(job.id);
         if (cancelled) return;
         setJob(next);
-        if (next.status === "completed" && next.result) onCandidatesChange(next.result.candidates, next.result.target ?? submittedTarget.current, next.result.requirements, next.result.model_target && next.result.requirements && next.result.constraints ? {model_target:next.result.model_target, requirements:next.result.requirements, constraints:next.result.constraints, reference_layers:next.result.reference_layers ?? []} : undefined);
+        if (["completed", "cancelled", "failed"].includes(next.status) && next.result) onCandidatesChange(next.result.candidates, next.result.target ?? submittedTarget.current, next.result.requirements, next.result.model_target && next.result.requirements && next.result.constraints ? {model_target:next.result.model_target, requirements:next.result.requirements, constraints:next.result.constraints, refinement:next.result.refinement, reference_layers:next.result.reference_layers ?? []} : undefined);
         if (next.status === "failed") setError(next.error?.message ?? next.message);
       } catch (caught) {
         if (cancelled) return;
@@ -103,6 +107,7 @@ export function InversePage({ target, editor, onEditorChange, requirements, onRe
     try {
       setJob(await api.createInverseJob({
         target: submittedTarget.current,
+        refinement: structuredClone(refinement),
         requirements: structuredClone(requirements),
         constraints: structuredClone(constraints),
         reference_layers: structuredClone(previewPayload.reference_layers),
@@ -131,7 +136,7 @@ export function InversePage({ target, editor, onEditorChange, requirements, onRe
   return (
     <main className="page-shell">
       <div className="page-title">
-        <div><span className="eyebrow">INVERSE DESIGN · V4</span><h1>OptoGPT 逆向设计</h1><p>绘制自定义 R/T 目标，生成并验证候选膜系。</p></div>
+        <div><span className="eyebrow">INVERSE DESIGN · V4</span><h1>OptoGPT 逆向设计</h1><p>绘制自定义 R/T 目标，生成候选并可选连续厚度精修。</p></div>
         <div className="title-actions">
           {active ? <button className="danger-button" onClick={() => api.cancelInverseJob(job.id).then(setJob).catch(e => setError(String(e)))}>停止</button> : <button className="primary-button" disabled={submitting || !previewReady} title={targetError} onClick={start}>{submitting ? "提交中…" : "生成候选"}</button>}
         </div>
@@ -144,6 +149,7 @@ export function InversePage({ target, editor, onEditorChange, requirements, onRe
       <div className="workspace-grid inverse-grid">
         <section className="panel inverse-controls">
           <div className="panel-heading"><h2>生成设置</h2></div>
+          <RefinementSettingsPanel value={refinement} onChange={onRefinementChange} />
           <div className="form-grid two-columns">
             <label>最终保留数量<NumberField value={candidateCount} onChange={(value) => setCandidateCount(value)} min={1} max={100} integer /></label>
             <label>最大层数<NumberField value={maxLayers} onChange={(value) => setMaxLayers(value)} min={1} max={20} integer /></label>
@@ -170,7 +176,7 @@ export function InversePage({ target, editor, onEditorChange, requirements, onRe
         <section className="panel candidate-preview">
           <div className="panel-heading"><h2>候选预览</h2><span>{candidates.length ? `${candidates.length} 组已验证` : "等待生成"}</span></div>
           {candidates.length === 0 ? <div className="empty-state"><div className="empty-orbit">◎</div><h3>目标准备完成</h3><p>点击“生成候选”后，OptoGPT 将生成多组膜系并交给 TMM 评分。</p></div> :
-            <div className="candidate-list">{candidates.slice(0, 6).map((candidate) => <div className="candidate-card" key={candidate.rank}><div className="rank-badge">#{candidate.rank}</div><div className="candidate-main"><strong>{candidate.tokens.join(" / ")}</strong><span>{candidate.layer_count} 层 · {candidate.total_thickness_nm.toFixed(0)} nm · R MAE {formatPercent(candidate.mae_r)} · T MAE {formatPercent(candidate.mae_t)} · {candidate.sources?.join(" + ")}</span>{candidate.requirement_score!=null && <span>违反要求 {formatPercent(candidate.requirement_score)} · 加权达标 {formatPercent(candidate.pass_rate ?? 0)}</span>}</div><button className="small-button" onClick={() => onUseCandidate(candidate)}>用于正向设计</button></div>)}</div>}
+            <div className="candidate-list">{candidates.slice(0, 6).map((candidate) => <div className="candidate-card" key={candidate.rank}><div className="rank-badge">#{candidate.rank}</div><div className="candidate-main"><strong>{candidate.layers.map(l=>`${l.material} ${l.thickness_nm.toFixed(3)} nm`).join(" / ")}</strong><span>{candidate.layer_count} 层 · {candidate.total_thickness_nm.toFixed(1)} nm · R MAE {formatPercent(candidate.mae_r)} · T MAE {formatPercent(candidate.mae_t)} · {candidate.sources?.join(" + ")}</span>{candidate.requirement_score!=null && <span>违反要求 {formatPercent(candidate.requirement_score)} · 加权达标 {formatPercent(candidate.pass_rate ?? 0)}</span>}{candidate.refinement && <span>{candidate.refinement.accepted?"连续精修已改善":"保留初始厚度"} · {candidate.refinement.message} · 求值 {candidate.refinement.evaluations}</span>}</div><button className="small-button" onClick={() => onUseCandidate(candidate)}>用于正向设计</button></div>)}</div>}
         </section>
       </div>
     </main>

@@ -23,8 +23,29 @@ function load(name) {
 const editor = load('targetEditor');
 const utils = load('utils');
 const settings = load('designRequirements');
+const refinement = load('refinement');
 const close = (a, b, tolerance = 1e-10) => assert.ok(Math.abs(a - b) < tolerance, `${a} != ${b}`);
 const seedTarget = { wavelengths_nm: [400, 650, 1100], reflectance: [0.1, 0.8, 0.2], transmittance: [0.9, 0.2, 0.8] };
+
+test('refinement settings preserve bounded budgets and reject invalid restoration', () => {
+  const saved = JSON.parse(JSON.stringify({...refinement.defaultRefinement, enabled:true, starts:3}));
+  refinement.validateRefinement(saved);
+  assert.equal(saved.starts,3);
+  assert.throws(()=>refinement.validateRefinement({...saved,max_evaluations:19}));
+  assert.throws(()=>refinement.validateRefinement({...saved,starts:1.5}));
+  assert.throws(()=>refinement.validateRefinement({...saved,time_budget_s:NaN}));
+  assert.throws(()=>refinement.validateRefinement({...saved,verification_step_nm:10}));
+});
+
+test('refinement panel renders all budgets and no-quantization caveat', () => {
+  const React = require('react');
+  const {renderToStaticMarkup} = require('react-dom/server');
+  const {RefinementSettingsPanel} = load('components/RefinementSettingsPanel');
+  const markup = renderToStaticMarkup(React.createElement(RefinementSettingsPanel, {value:{...refinement.defaultRefinement,enabled:true},onChange:()=>{}}));
+  assert.match(markup,/每组总TMM求值预算/);
+  assert.match(markup,/全部候选优化时限/);
+  assert.match(markup,/尚未量化/);
+});
 
 test('PCHIP preserves control points, monotonicity and peak bounds', () => {
   const points = [{ wavelength_nm: 400, value: 0 }, { wavelength_nm: 500, value: 1 }, { wavelength_nm: 650, value: 0.2 }, { wavelength_nm: 1100, value: 0.2 }];

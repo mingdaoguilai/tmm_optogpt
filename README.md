@@ -53,7 +53,7 @@ After setup, run the **Workbench: start** VS Code task or:
 On Windows, you can also double-click `start_workbench.cmd` in the project
 directory. The launcher uses `OPTOGPT_PYTHON` if configured, otherwise the
 existing `D:\anaconda\envs\optogpt\python.exe` when available, then `python`.
-The interface displays **OptiForge · V4** and backend version **0.4.1**.
+The interface displays **OptiForge · V4** and backend version **0.4.2**.
 The launcher reuses a running server only when its version and project directory
 match; otherwise it selects another local port. It opens the browser after the
 matching backend is ready. Closing the launch terminal stops that instance.
@@ -147,7 +147,23 @@ Global/per-layer thickness bounds and material/thickness locks filter tokens in
 sampling, greedy and beam search. Project schema 3 preserves requirements,
 constraints and candidate design snapshots while accepting schema 1/2 projects.
 See [the requirements guide](docs/optogpt-v4-requirements.md) for precise semantics
-and validation. Rebuild and restart for 0.4.1; thickness refinement remains planned.
+and validation. Thickness refinement was added in the next release below.
+
+### Version 4, part 3: continuous thickness refinement
+
+Version 0.4.2 optionally refines up to 5 (configurable 1–10) high-ranked, distinct
+material sequences with bounded SciPy least squares. It preserves material order,
+layer count, thickness bounds and locks. Multi-start perturbations, actual TMM
+evaluation budgets, a shared optimization time limit, progress and cancellation
+are supported. All finalists are compared on the same dense verification grid;
+non-improving proposals retain their initial thicknesses.
+
+The compare view overlays pre/post-refinement spectra. Projects and exports keep
+original tokens, initial metrics, optimizer status and actual floating-point
+thicknesses; adopting a candidate uses those actual thicknesses. Manufacturing
+quantization and tolerance robustness remain future work. See
+[the refinement guide](docs/optogpt-v4-refinement.md) for budgets and limitations.
+Rebuild and restart for 0.4.2, then enable refinement in the inverse search settings.
 
 ## Run inverse design
 

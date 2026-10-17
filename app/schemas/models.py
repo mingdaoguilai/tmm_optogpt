@@ -200,8 +200,21 @@ class DesignPreviewRequest(BaseModel):
         return self
 
 
+class RefinementSettings(BaseModel):
+    enabled: bool = False
+    candidate_count: int = Field(default=5, ge=1, le=10)
+    starts: int = Field(default=2, ge=1, le=8)
+    max_evaluations: int = Field(default=160, ge=20, le=2000)
+    time_budget_s: float = Field(default=180, ge=1, le=3600, allow_inf_nan=False)
+    perturbation: float = Field(default=0.1, ge=0, le=0.5, allow_inf_nan=False)
+    optimization_step_nm: Literal[2, 5] = 5
+    verification_step_nm: Literal[1, 2] = 2
+    loss: Literal["linear", "huber"] = "linear"
+
+
 class InverseJobRequest(BaseModel):
     target: TargetSpectrum
+    refinement: RefinementSettings = Field(default_factory=RefinementSettings)
     requirements: Optional[DesignRequirements] = None
     constraints: ManufacturingConstraints = Field(default_factory=ManufacturingConstraints)
     reference_layers: List[Layer] = Field(default_factory=list, max_length=20)
@@ -242,6 +255,7 @@ class InverseJobRequest(BaseModel):
 
 
 class CandidateResult(BaseModel):
+    refinement: Optional[dict] = None
     rank: int = 0
     sources: List[str] = Field(default_factory=list)
     tokens: List[str]
@@ -265,6 +279,7 @@ class CandidateDesignSnapshot(BaseModel):
     model_target: TargetSpectrum
     requirements: DesignRequirements
     constraints: ManufacturingConstraints
+    refinement: RefinementSettings = Field(default_factory=RefinementSettings)
     reference_layers: List[Layer] = Field(default_factory=list)
 
 
@@ -276,6 +291,7 @@ class ProjectDocument(BaseModel):
     target_editor: Optional[TargetEditorState] = None
     design_requirements: DesignRequirements = Field(default_factory=DesignRequirements)
     manufacturing_constraints: ManufacturingConstraints = Field(default_factory=ManufacturingConstraints)
+    refinement_settings: RefinementSettings = Field(default_factory=RefinementSettings)
     candidate_requirements: Optional[DesignRequirements] = None
     candidate_design_snapshot: Optional[CandidateDesignSnapshot] = None
     candidate_target: Optional[TargetSpectrum] = None

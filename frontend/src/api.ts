@@ -6,6 +6,7 @@ import type {
   SimulationResult,
   TargetSpectrum,
   DesignRequirements, ManufacturingConstraints, DesignPreview, Layer,
+  RefinementSettings,
 } from "./types";
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -40,6 +41,7 @@ export const api = {
       body: JSON.stringify(simulation),
     }),
   createInverseJob: (payload: {
+    refinement?: RefinementSettings;
     requirements?: DesignRequirements;
     constraints?: ManufacturingConstraints;
     reference_layers?: Layer[];

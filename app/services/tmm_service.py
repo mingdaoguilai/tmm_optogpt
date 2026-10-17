@@ -29,13 +29,14 @@ def _simulate_polarization(
     request: SimulationRequest,
     wavelengths_nm: np.ndarray,
     polarization: str,
+    nk_cache: dict | None = None,
 ) -> Dict[str, np.ndarray]:
     material_names = (
         [request.incident_material]
         + [layer.material for layer in request.layers]
         + [request.substrate_material, request.exit_material]
     )
-    nk_by_material = {
+    nk_by_material = nk_cache if nk_cache is not None else {
         material: material_service.refractive_index(material, wavelengths_nm)
         for material in set(material_names)
     }

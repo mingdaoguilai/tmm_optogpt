@@ -47,11 +47,12 @@ def evaluate_candidate(
     reflectance_weight: float = 1.0,
     transmittance_weight: float = 1.0,
     requirements=None,
+    *, layers=None, grid=None, physical=None,
 ) -> CandidateResult:
-    layers = parse_candidate(tokens)
+    layers = layers if layers is not None else parse_candidate(tokens)
     requirements = requirements or DesignRequirements(weight_r=reflectance_weight, weight_t=transmittance_weight)
-    grid = verification_grid(requirements)
-    physical = _simulate_polarization(
+    grid = verification_grid(requirements) if grid is None else np.asarray(grid, dtype=float)
+    physical = physical if physical is not None else _simulate_polarization(
         SimulationRequest(
             layers=layers,
             wavelength_start_nm=400,
