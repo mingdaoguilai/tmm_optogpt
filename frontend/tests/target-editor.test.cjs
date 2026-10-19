@@ -24,8 +24,76 @@ const editor = load('targetEditor');
 const utils = load('utils');
 const settings = load('designRequirements');
 const refinement = load('refinement');
+const workflow = load('workflow');
 const close = (a, b, tolerance = 1e-10) => assert.ok(Math.abs(a - b) < tolerance, `${a} != ${b}`);
 const seedTarget = { wavelengths_nm: [400, 650, 1100], reflectance: [0.1, 0.8, 0.2], transmittance: [0.9, 0.2, 0.8] };
+
+const sampleCandidate = () => ({rank:1,tokens:['SiO2_100'],layers:[{material:'SiO2',thickness_nm:137.23456789,coherent:true}],
+  layer_count:1,total_thickness_nm:137.23456789,mae_r:.03,mae_t:.03,max_error:.08,score:.03,
+  requirement_score:.01,weighted_mae:.03,max_deviation:.08,max_violation:.06,pass_rate:.5,
+  simulation:{wavelengths_nm:[400,600.3,1100],reflectance:[.1,.2,.1],transmittance:[.9,.8,.9],absorptance:[0,0,0],max_energy_error:0},
+  refinement:{accepted:true,status:'improved',message:'test',evaluations:5,starts_completed:1,elapsed_s:.1,solver_messages:[],
+    initial_layers:[{material:'SiO2',thickness_nm:100,coherent:true}],
+    initial_simulation:{wavelengths_nm:[400,600.3,1100],reflectance:[.2,.3,.2],transmittance:[.8,.7,.8],absorptance:[0,0,0],max_energy_error:0},
+    initial_metrics:{requirement_score:.05,weighted_mae:.06,max_deviation:.15,max_violation:.13,pass_rate:0,mae_r:.06,mae_t:.06,max_error:.15,score:.05},initial_band_metrics:[]}});
+
+test('adoption selects real float thickness or original layers without token reconstruction', () => {
+  const c=sampleCandidate();
+  const current=workflow.adoptCandidate(c,'current',seedTarget,settings.defaultRequirements);
+  const initial=workflow.adoptCandidate(c,'initial',seedTarget,settings.defaultRequirements);
+  assert.equal(current.conditions.layers[0].thickness_nm,137.23456789);
+  assert.equal(initial.conditions.layers[0].thickness_nm,100);
+  assert.equal(initial.candidate.max_error,.15);
+  assert.equal(current.conditions.polarization,'s');
+  current.conditions.layers[0].thickness_nm=200;
+  assert.equal(c.layers[0].thickness_nm,137.23456789);
+  assert.equal(c.refinement.initial_layers[0].thickness_nm,100);
+});
+
+test('verification key detects tiny edits and changed target/rules but ignores object key order', () => {
+  const a=workflow.adoptCandidate(sampleCandidate(),'current',seedTarget,settings.defaultRequirements);
+  const payload=workflow.verificationRequest(a,a.conditions);
+  assert.deepEqual(payload.evaluation_wavelengths_nm,[400,600.3,1100]);
+  const restored=JSON.parse(JSON.stringify(payload));
+  assert.equal(workflow.fingerprint(payload),workflow.fingerprint(restored));
+  restored.simulation.layers[0].thickness_nm+=1e-8;
+  assert.notEqual(workflow.fingerprint(payload),workflow.fingerprint(restored));
+  const rules=structuredClone(payload);rules.requirements.tolerance=.1;
+  assert.notEqual(workflow.fingerprint(payload),workflow.fingerprint(rules));
+  assert.equal(workflow.fingerprint({a:1,b:2}),workflow.fingerprint({b:2,a:1}));
+});
+
+test('CSV export preserves actual decimal thickness and exact grid, never original token thickness', () => {
+  const c=sampleCandidate();
+  assert.match(workflow.structureCsv(c),/137\.23456789/);
+  assert.match(workflow.structureCsv(workflow.initialCandidate(c)),/100/);
+  assert.match(workflow.spectrumCsv(c.simulation),/600\.3,0\.2,0\.8,0/);
+  assert.equal(workflow.structureCsv(c).split('\n')[0],'layer,material,thickness_nm,coherent');
+});
+
+test('job design snapshot preserves search provenance for saved and partial results', () => {
+  const result={model_target:seedTarget,requirements:settings.defaultRequirements,constraints:settings.defaultConstraints,
+    reference_layers:[],search_settings:{seed:7},search_summary:{verified_count:2}};
+  const snapshot=workflow.designSnapshot({id:'job-1',status:'cancelled',result});
+  assert.equal(snapshot.job_status,'cancelled');assert.equal(snapshot.search_settings.seed,7);
+  assert.equal(snapshot.search_summary.verified_count,2);
+});
+
+test('review updates saved metrics only if its original candidate still matches', () => {
+  const source=sampleCandidate();const updated=structuredClone(source);updated.max_deviation=.07;
+  assert.equal(workflow.replaceReviewedCandidate([source],source,updated)[0].max_deviation,.07);
+  const changed=structuredClone(source);changed.layers[0].thickness_nm=150;
+  assert.equal(workflow.replaceReviewedCandidate([changed],source,updated)[0].layers[0].thickness_nm,150);
+});
+
+test('metric table distinguishes active max deviation from post-tolerance violation', () => {
+  const React=require('react');const {renderToStaticMarkup}=require('react-dom/server');
+  const {CandidateMetrics}=load('components/CandidateMetrics');
+  const c=sampleCandidate();
+  const markup=renderToStaticMarkup(React.createElement(CandidateMetrics,{current:c,initial:workflow.initialCandidate(c)}));
+  assert.match(markup,/最大考核偏差/);assert.match(markup,/最大超差/);
+  assert.match(markup,/15\.00%/);assert.match(markup,/8\.00%/);
+});
 
 test('refinement settings preserve bounded budgets and reject invalid restoration', () => {
   const saved = JSON.parse(JSON.stringify({...refinement.defaultRefinement, enabled:true, starts:3}));

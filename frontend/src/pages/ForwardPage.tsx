@@ -3,16 +3,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { SpectrumPlot } from "../components/SpectrumPlot";
 import { StackEditor } from "../components/StackEditor";
+import { AdoptionVerification } from "../components/AdoptionVerification";
+import type { AdoptedCandidate, CandidateVerification } from "../types";
 import type { Material, SimulationRequest, SimulationResult } from "../types";
 import { downloadText, formatPercent } from "../utils";
 
 interface ForwardPageProps {
+  adoption: AdoptedCandidate | null;
+  verification: CandidateVerification | null;
+  onVerification: (value:CandidateVerification)=>void;
+  onCompare: ()=>void;
   request: SimulationRequest;
   materials: Material[];
   onRequestChange: (request: SimulationRequest) => void;
 }
 
-export function ForwardPage({ request, materials, onRequestChange }: ForwardPageProps) {
+export function ForwardPage({ adoption, verification, onVerification, onCompare, request, materials, onRequestChange }: ForwardPageProps) {
   const [auto, setAuto] = useState(true);
   const sequence = useRef(0);
   const [result, setResult] = useState<SimulationResult | null>(null);
@@ -54,7 +60,7 @@ export function ForwardPage({ request, materials, onRequestChange }: ForwardPage
 
   const patch = (change: Partial<SimulationRequest>) => onRequestChange({ ...request, ...change });
   const exportCsv = () => {
-    if (!result) return;
+    if (!result || loading || error || resultRequest !== JSON.stringify(request)) return;
     const rows = ["wavelength_nm,R,T,A"];
     result.wavelengths_nm.forEach((wavelength, index) => {
       rows.push([wavelength, result.reflectance[index], result.transmittance[index], result.absorptance[index]].join(","));
@@ -67,12 +73,13 @@ export function ForwardPage({ request, materials, onRequestChange }: ForwardPage
       <div className="page-title">
         <div><span className="eyebrow">FORWARD DESIGN</span><h1>多层膜正向仿真</h1><p>编辑膜系后自动使用 TMM 更新光谱。</p></div>
         <div className="title-actions">
-          <button className="secondary-button" onClick={exportCsv} disabled={!result}>导出 CSV</button>
+          <button className="secondary-button" onClick={exportCsv} disabled={!result || loading || !!error || resultRequest !== JSON.stringify(request)}>导出 CSV</button>
           <button className="primary-button" onClick={run} disabled={loading}>{loading ? "计算中…" : "立即计算"}</button>
         </div>
       </div>
 
       {error && <div className="alert error-alert">{error}</div>}
+      {adoption && <AdoptionVerification key={JSON.stringify(adoption)} adoption={adoption} request={request} verification={verification} onVerification={onVerification} onCompare={onCompare} />}
       <div className="workspace-grid forward-grid">
         <section className="panel controls-panel">
           <div className="panel-heading"><h2>计算条件</h2><label className="auto-toggle"><input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} />自动更新</label></div>

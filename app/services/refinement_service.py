@@ -90,7 +90,8 @@ def refine_one(candidate, target, requirements, constraints, settings, seed,
               "initial_layers": [layer.model_dump() for layer in initial.layers],
               "initial_simulation": initial.simulation.model_dump(),
               "initial_metrics": {name: getattr(initial, name) for name in
-                  ("requirement_score", "weighted_mae", "max_violation", "pass_rate", "mae_r", "mae_t")},
+                  ("requirement_score", "weighted_mae", "max_violation", "max_deviation", "pass_rate", "mae_r", "mae_t", "max_error", "score")},
+              "initial_band_metrics": initial.band_metrics,
               "solver_messages": [], "solver_runs": []}
     low, high = thickness_bounds(initial.layers, constraints)
     free = high > low

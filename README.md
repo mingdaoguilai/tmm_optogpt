@@ -53,7 +53,7 @@ After setup, run the **Workbench: start** VS Code task or:
 On Windows, you can also double-click `start_workbench.cmd` in the project
 directory. The launcher uses `OPTOGPT_PYTHON` if configured, otherwise the
 existing `D:\anaconda\envs\optogpt\python.exe` when available, then `python`.
-The interface displays **OptiForge · V4** and backend version **0.4.2**.
+The interface displays **OptiForge · V4** and backend version **0.4.3**.
 The launcher reuses a running server only when its version and project directory
 match; otherwise it selects another local port. It opens the browser after the
 matching backend is ready. Closing the launch terminal stops that instance.
@@ -164,6 +164,22 @@ thicknesses; adopting a candidate uses those actual thicknesses. Manufacturing
 quantization and tolerance robustness remain future work. See
 [the refinement guide](docs/optogpt-v4-refinement.md) for budgets and limitations.
 Rebuild and restart for 0.4.2, then enable refinement in the inverse search settings.
+
+### Version 4, part 4: review, adoption and verification workflow
+
+Version 0.4.3 adds explicit adoption of either initial or current thicknesses,
+same-grid recomputation before adoption, active-region maximum deviation and
+pre/post band metrics. The forward page retains the adopted target/requirements
+and can reproduce the original (possibly non-uniform) scoring grid. Editing
+layers or simulation conditions marks old verification/export data stale.
+
+Projects now use schema 4 while accepting schema 1–3. Full design packages preserve
+search provenance, both structure versions, adoption context and verification.
+Saved candidates are shared by inverse and comparison views, including partial
+results from cancelled/failed jobs. CSV thickness exports retain actual decimals.
+See [the workflow guide](docs/optogpt-v4-workflow.md). Restart after rebuilding.
+The separate [50–100 layer discussion](docs/optogpt-long-stack-discussion.md) is a
+proposal only; this release keeps the existing 20-layer model generation limit.
 
 ## Run inverse design
 

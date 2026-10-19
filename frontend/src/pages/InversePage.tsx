@@ -8,8 +8,12 @@ import { downloadText, formatPercent } from "../utils";
 import { validateSettings } from "../designRequirements";
 import type { RefinementSettings } from "../types";
 import { RefinementSettingsPanel } from "../components/RefinementSettingsPanel";
+import { designSnapshot } from "../workflow";
 
 interface InversePageProps {
+  candidates: Candidate[];
+  candidateDesign: CandidateDesignSnapshot | null;
+  onReviewCandidates: ()=>void;
   refinement: RefinementSettings;
   onRefinementChange: (value: RefinementSettings) => void;
   target: TargetSpectrum;
@@ -25,7 +29,7 @@ interface InversePageProps {
   onUseCandidate: (candidate: Candidate) => void;
 }
 
-export function InversePage({ refinement, onRefinementChange, target, editor, onEditorChange, requirements, onRequirementsChange, constraints, onConstraintsChange, referenceLayers, materials, onCandidatesChange, onUseCandidate }: InversePageProps) {
+export function InversePage({ candidates, candidateDesign, onReviewCandidates, refinement, onRefinementChange, target, editor, onEditorChange, requirements, onRequirementsChange, constraints, onConstraintsChange, referenceLayers, materials, onCandidatesChange, onUseCandidate }: InversePageProps) {
   const [candidateCount, setCandidateCount] = useState(20);
   const [maxLayers, setMaxLayers] = useState(20);
   const [temperatures, setTemperatures] = useState([0.7, 0.85, 1.0]);
@@ -88,7 +92,7 @@ export function InversePage({ refinement, onRefinementChange, target, editor, on
         const next = await api.inverseJob(job.id);
         if (cancelled) return;
         setJob(next);
-        if (["completed", "cancelled", "failed"].includes(next.status) && next.result) onCandidatesChange(next.result.candidates, next.result.target ?? submittedTarget.current, next.result.requirements, next.result.model_target && next.result.requirements && next.result.constraints ? {model_target:next.result.model_target, requirements:next.result.requirements, constraints:next.result.constraints, refinement:next.result.refinement, reference_layers:next.result.reference_layers ?? []} : undefined);
+        if (next.result?.candidates.length) onCandidatesChange(next.result.candidates, next.result.target ?? submittedTarget.current, next.result.requirements, designSnapshot(next));
         if (next.status === "failed") setError(next.error?.message ?? next.message);
       } catch (caught) {
         if (cancelled) return;
@@ -130,7 +134,6 @@ export function InversePage({ refinement, onRefinementChange, target, editor, on
     } finally { setSubmitting(false); }
   };
 
-  const candidates = job?.result?.candidates ?? [];
   const targetError = preview?.key === previewKey ? preview.error ?? "" : "正在检查设计要求";
   const active = job && ["queued", "running"].includes(job.status);
   return (
@@ -138,11 +141,13 @@ export function InversePage({ refinement, onRefinementChange, target, editor, on
       <div className="page-title">
         <div><span className="eyebrow">INVERSE DESIGN · V4</span><h1>OptoGPT 逆向设计</h1><p>绘制自定义 R/T 目标，生成候选并可选连续厚度精修。</p></div>
         <div className="title-actions">
+          <button className="secondary-button" disabled={!candidates.length} onClick={onReviewCandidates}>比较 / 采用已保存候选</button>
           {active ? <button className="danger-button" onClick={() => api.cancelInverseJob(job.id).then(setJob).catch(e => setError(String(e)))}>停止</button> : <button className="primary-button" disabled={submitting || !previewReady} title={targetError} onClick={start}>{submitting ? "提交中…" : "生成候选"}</button>}
         </div>
       </div>
 
       {error && <div className="alert error-alert">{error}</div>}
+      {candidateDesign?.job_status && <p className="search-help">候选来自任务 {candidateDesign.job_id?.slice(0,8)} · 状态 {candidateDesign.job_status}。运行中可查看部分已验证结果；后续排名仍可能改变。当前编辑不会改写这些候选的目标快照。</p>}
       <div className="constraint-banner"><strong>当前模型边界</strong><span>400–1100 nm · 10 nm 采样 · 最多 20 层 · 模型材料词表 · 法向入射验证</span></div>
       <DesignSettings requirements={requirements} onRequirementsChange={onRequirementsChange} constraints={constraints} onConstraintsChange={onConstraintsChange} referenceLayers={referenceLayers} materials={materials} preview={previewReady?preview?.data:undefined} pending={preview?.key!==previewKey} error={targetError} />
       <TargetEditor value={editor} onChange={onEditorChange} passiveValidation={false} modelInput={previewReady?preview?.data?.model_target:undefined} />

@@ -7,6 +7,7 @@ import type {
   TargetSpectrum,
   DesignRequirements, ManufacturingConstraints, DesignPreview, Layer,
   RefinementSettings,
+  Candidate, CandidateReview, CandidateVerification, CandidateVerificationRequest,
 } from "./types";
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -28,6 +29,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  reviewCandidate: (candidate:Candidate,target:TargetSpectrum,requirements:DesignRequirements) => request<CandidateReview>('/api/candidates/review', {method:'POST',body:JSON.stringify({candidate,target,requirements})}),
+  verifyCandidate: (payload:CandidateVerificationRequest) => request<CandidateVerification>('/api/candidates/verify',{method:'POST',body:JSON.stringify(payload)}),
   designPreview: (payload: {target: TargetSpectrum; requirements: DesignRequirements; constraints: ManufacturingConstraints; reference_layers: Layer[]; max_layers: number}) => request<DesignPreview>("/api/inverse/preview", {method:"POST", body:JSON.stringify(payload)}),
   capabilities: () => request<{materials: Record<string, number[]>}>("/api/inverse/capabilities"),
   health: () => request<HealthResponse>("/api/health"),

@@ -267,6 +267,7 @@ class CandidateResult(BaseModel):
     requirement_score: Optional[float] = None
     weighted_mae: Optional[float] = None
     max_violation: Optional[float] = None
+    max_deviation: Optional[float] = None
     pass_rate: Optional[float] = None
     band_metrics: List[dict] = Field(default_factory=list)
     layer_count: int
@@ -281,10 +282,63 @@ class CandidateDesignSnapshot(BaseModel):
     constraints: ManufacturingConstraints
     refinement: RefinementSettings = Field(default_factory=RefinementSettings)
     reference_layers: List[Layer] = Field(default_factory=list)
+    search_settings: Optional[dict] = None
+    search_summary: Optional[dict] = None
+    job_id: Optional[str] = None
+    job_status: Optional[str] = None
+
+
+class CandidateReviewRequest(BaseModel):
+    candidate: CandidateResult
+    target: TargetSpectrum
+    requirements: DesignRequirements = Field(default_factory=DesignRequirements)
+
+
+class CandidateVerificationRequest(BaseModel):
+    simulation: SimulationRequest
+    target: TargetSpectrum
+    requirements: DesignRequirements
+    evaluation_wavelengths_nm: List[float] = Field(min_length=2, max_length=12000)
+
+    @field_validator("evaluation_wavelengths_nm")
+    @classmethod
+    def validate_grid(cls, grid):
+        if (grid[0] != 400 or grid[-1] != 1100 or any(
+                not math.isfinite(x) or x < 400 or x > 1100 or (i and x <= grid[i - 1])
+                for i, x in enumerate(grid))):
+            raise ValueError("复核网格必须为400–1100 nm之间递增且唯一的有限波长，并包含两个端点")
+        return grid
+
+
+class CandidateVerificationResult(CandidateVerificationRequest):
+    result: SimulationResult
+    metrics: dict
+
+    @model_validator(mode="after")
+    def validate_result_grid(self):
+        if self.result.wavelengths_nm != self.evaluation_wavelengths_nm or any(
+                len(values) != len(self.evaluation_wavelengths_nm) or not all(math.isfinite(v) for v in values)
+                for values in (self.result.reflectance, self.result.transmittance, self.result.absorptance)):
+            raise ValueError("复核结果的光谱与考核网格不匹配")
+        return self
+
+
+class AdoptedCandidate(BaseModel):
+    variant: Literal["initial", "current"] = "current"
+    candidate: CandidateResult
+    target: TargetSpectrum
+    requirements: DesignRequirements
+    conditions: SimulationRequest
+
+    @model_validator(mode="after")
+    def validate_adopted_layers(self):
+        if self.conditions.layers != self.candidate.layers:
+            raise ValueError("采用快照的计算膜层必须与所选候选实际厚度一致")
+        return self
 
 
 class ProjectDocument(BaseModel):
-    schema_version: Literal[1, 2, 3] = 3
+    schema_version: Literal[1, 2, 3, 4] = 4
     name: str = "Untitled project"
     simulation: SimulationRequest
     target: Optional[TargetSpectrum] = None
@@ -296,3 +350,5 @@ class ProjectDocument(BaseModel):
     candidate_design_snapshot: Optional[CandidateDesignSnapshot] = None
     candidate_target: Optional[TargetSpectrum] = None
     candidates: List[CandidateResult] = Field(default_factory=list)
+    adopted_candidate: Optional[AdoptedCandidate] = None
+    forward_verification: Optional[CandidateVerificationResult] = None

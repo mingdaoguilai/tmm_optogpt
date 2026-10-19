@@ -122,6 +122,14 @@ label { display: grid; gap: 6px; color: #8f9db5; font-size: 10px; letter-spacing
 .search-check input { width: auto; min-height: 0; accent-color: var(--blue); }
 .job-card p { font-size: 12px; line-height: 1.6; }
 .job-card button { margin-top: 10px; }
+.workflow-card, .workflow-selector { margin: 18px 0; padding: 18px; }
+.workflow-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:12px 0; }
+.workflow-table-scroll { overflow-x:auto; margin:14px 0; }
+.workflow-table { width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
+.workflow-table th, .workflow-table td { padding:10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+.workflow-table th:first-child, .workflow-table td:first-child { text-align:left; }
+.workflow-structure { overflow-wrap:anywhere; color:var(--muted); font-size:12px; line-height:1.8; }
+.workflow-card details { margin:14px 0; font-size:12px; }
 
 /* v2: consistent controls, readable data, and layouts that fit the viewport. */
 [hidden] { display: none !important; }

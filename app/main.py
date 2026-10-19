@@ -14,7 +14,8 @@ from app.services.job_service import inverse_job_manager
 from app.services.material_service import MaterialNotFoundError, material_service
 from app.services.optogpt_service import optogpt_service
 from app.services.tmm_service import simulate
-from app.schemas.models import DesignPreviewRequest
+from app.schemas.models import DesignPreviewRequest, CandidateReviewRequest, CandidateVerificationRequest
+from app.services.workflow_service import review_candidate, verify_candidate
 from app.services.design_service import prepare_design
 from app.services.constraint_service import compile_token_masks
 
@@ -126,6 +127,22 @@ def cancel_inverse_job(job_id: str) -> dict:
 @app.post("/api/projects/validate")
 def validate_project(project: ProjectDocument) -> dict:
     return {"valid": True, "project": project.model_dump()}
+
+
+@app.post("/api/candidates/review")
+def review_saved_candidate(request: CandidateReviewRequest) -> dict:
+    try:
+        return review_candidate(request)
+    except (ValueError, KeyError, TypeError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/candidates/verify")
+def verify_adopted_candidate(request: CandidateVerificationRequest) -> dict:
+    try:
+        return verify_candidate(request).model_dump()
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 if FRONTEND_DIST.is_dir():

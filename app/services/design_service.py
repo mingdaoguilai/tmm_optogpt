@@ -129,9 +129,11 @@ def score_requirements(target, requirements, grid, actual):
         if band.kind != 'ignore' and selected.any():
             metrics.append({"channel": band.channel, "start_nm": band.start_nm, "end_nm": band.end_nm,
                             "kind": band.kind, "mae": float(error[c, selected].mean()),
+                            "max_deviation": float(error[c, selected].max()),
                             "max_violation": float(violation[c, selected].max()),
                             "pass_rate": float((violation[c, selected] <= 1e-8).mean())})
     return {"requirement_score": float((violation * weights).sum() / total),
             "weighted_mae": float((error * weights).sum() / total),
             "max_violation": float(violation[mask].max()),
+            "max_deviation": float(error[mask].max()),
             "pass_rate": float(weights[violation <= 1e-8].sum() / total), "band_metrics": metrics}

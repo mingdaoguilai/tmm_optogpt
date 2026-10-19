@@ -92,6 +92,9 @@ export interface DesignPreview {
   constraints_checked?: boolean;
 }
 export interface CandidateDesignSnapshot {
+  search_settings?: Record<string, unknown> | null;
+  search_summary?: NonNullable<InverseJob['result']>['search_summary'] | null;
+  job_id?: string | null; job_status?: string | null;
   refinement?: RefinementSettings;
   model_target: TargetSpectrum; requirements: DesignRequirements; constraints: ManufacturingConstraints; reference_layers: Layer[];
 }
@@ -102,14 +105,16 @@ export interface Candidate {
     evaluations: number; starts_completed: number; elapsed_s: number;
     optimization_step_nm: number; verification_step_nm: number;
     initial_layers: Layer[]; initial_simulation: SimulationResult;
-    initial_metrics: { requirement_score: number; weighted_mae: number; pass_rate: number };
+    initial_metrics: { requirement_score: number; weighted_mae: number; pass_rate: number; max_deviation?: number; max_violation?: number; mae_r?: number; mae_t?: number; max_error?: number; score?: number };
+    initial_band_metrics?: BandMetric[];
     solver_messages: string[];
   } | null;
   requirement_score?: number | null;
   weighted_mae?: number | null;
   max_violation?: number | null;
+  max_deviation?: number | null;
   pass_rate?: number | null;
-  band_metrics?: {channel: "R" | "T"; start_nm: number; end_nm: number; kind: string; mae: number; max_violation: number; pass_rate: number}[];
+  band_metrics?: BandMetric[];
   sources?: string[];
   rank: number;
   tokens: string[];
@@ -170,4 +175,25 @@ export interface RefinementSettings {
   enabled: boolean; candidate_count: number; starts: number; max_evaluations: number;
   time_budget_s: number; perturbation: number; optimization_step_nm: 2 | 5;
   verification_step_nm: 1 | 2; loss: "linear" | "huber";
+}
+
+export interface BandMetric {
+  channel: "R" | "T"; start_nm: number; end_nm: number; kind: string;
+  mae: number; max_deviation?: number; max_violation: number; pass_rate: number;
+}
+export interface CandidateReview {
+  current: Candidate; initial: Candidate | null; conditions: SimulationRequest;
+  target: TargetSpectrum; requirements: DesignRequirements;
+}
+export interface AdoptedCandidate {
+  variant: "initial" | "current"; candidate: Candidate; target: TargetSpectrum;
+  requirements: DesignRequirements; conditions: SimulationRequest;
+}
+export interface CandidateVerificationRequest {
+  simulation: SimulationRequest; target: TargetSpectrum; requirements: DesignRequirements;
+  evaluation_wavelengths_nm: number[];
+}
+export interface CandidateVerification extends CandidateVerificationRequest {
+  result: SimulationResult;
+  metrics: {requirement_score:number; weighted_mae:number; max_deviation:number; max_violation:number; pass_rate:number; band_metrics:BandMetric[]};
 }

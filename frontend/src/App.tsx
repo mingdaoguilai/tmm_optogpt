@@ -10,6 +10,8 @@ import { editorFromSpectrum, editorToSpectrum, validateEditor } from "./targetEd
 import { defaultConstraints, defaultRequirements, validateSettings } from "./designRequirements";
 import { defaultRefinement, validateRefinement } from "./refinement";
 import type { RefinementSettings } from "./types";
+import type { AdoptedCandidate, CandidateVerification } from "./types";
+import { adoptCandidate, replaceReviewedCandidate } from "./workflow";
 
 const initialSimulation: SimulationRequest = {
   incident_material: "Air",
@@ -40,6 +42,8 @@ export default function App() {
   const [refinement, setRefinement] = useState<RefinementSettings>(()=>structuredClone(defaultRefinement));
   const [candidateRequirements, setCandidateRequirements] = useState<DesignRequirements | null>(null);
   const [candidateDesign, setCandidateDesign] = useState<CandidateDesignSnapshot | null>(null);
+  const [adoption,setAdoption]=useState<AdoptedCandidate|null>(null);
+  const [verification,setVerification]=useState<CandidateVerification|null>(null);
   const [history, setHistory] = useState<SimulationRequest[]>([]);
   const [notice, setNotice] = useState("");
   const [projectRevision, setProjectRevision] = useState(0);
@@ -75,6 +79,7 @@ export default function App() {
           const refinement = saved.refinement_settings ?? structuredClone(defaultRefinement);
           validateRefinement(refinement); setRefinement(refinement);
           setCandidateRequirements(saved.candidate_requirements ?? null); setCandidateDesign(saved.candidate_design_snapshot ?? null);
+          setAdoption(saved.adopted_candidate ?? null); setVerification(saved.forward_verification ?? null);
           setTargetEditor(editor); setTarget(editorToSpectrum(editor));
           setSimulation(saved.simulation); setCandidates(saved.candidates ?? []);
           setCandidateTarget(saved.candidate_target ?? saved.target); setProjectName(saved.name ?? "恢复项目");
@@ -86,21 +91,27 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!restored) return;
-    try { localStorage.setItem(draftKey, JSON.stringify({ name: projectName, simulation, target, target_editor: targetEditor, design_requirements:requirements, manufacturing_constraints:constraints, refinement_settings:refinement, candidate_requirements:candidateRequirements, candidate_design_snapshot:candidateDesign, candidates, candidate_target: candidateTarget })); }
+    try { localStorage.setItem(draftKey, JSON.stringify(projectDocument())); }
     catch { setNotice("草稿存储空间不足，请手动保存项目"); }
-  }, [restored, projectName, simulation, target, targetEditor, requirements, constraints, refinement, candidateRequirements, candidateDesign, candidates, candidateTarget]);
+  }, [restored, projectName, simulation, target, targetEditor, requirements, constraints, refinement, candidateRequirements, candidateDesign, candidates, candidateTarget, adoption, verification]);
   const editTarget = (editor: TargetEditorState) => {
     setTargetEditor(editor); setTarget(editorToSpectrum(editor)); setDirty(true);
   };
   const editSimulation = (next: SimulationRequest) => {
     setHistory(previous => [...previous.slice(-49), simulation]); setSimulation(next); setDirty(true);
   };
-  const useCandidate = (candidate: Candidate) => {
-    editSimulation({ ...initialSimulation, layers: candidate.layers, wavelength_step_nm: 10, polarization: "s" });
-    setNotice("已采用候选验证条件：法向入射、500000 nm 非相干玻璃基底、空气出射");
+  const useCandidate = (candidate: Candidate, variant:'initial'|'current'='current') => {
+    const next=adoptCandidate(candidate,variant,candidateTarget??target,candidateRequirements??defaultRequirements);
+    setAdoption(next);setVerification(null);
+    editSimulation(next.conditions);
+    setNotice(`已采用${variant==='initial'?'精修初值':'当前实际厚度'}：法向s偏振、500000 nm 非相干玻璃基底；可在正向页按原考核网格复核`);
     setPage("forward");
   };
-  const saveProject = () => { downloadText("thin-film-project.json", JSON.stringify({ schema_version: 3, name: projectName, simulation, target, target_editor: targetEditor, design_requirements:requirements, manufacturing_constraints:constraints, refinement_settings:refinement, candidate_requirements:candidateRequirements, candidate_design_snapshot:candidateDesign, candidates, candidate_target: candidateTarget }, null, 2)); setDirty(false); };
+  const projectDocument=()=>({schema_version:4,name:projectName,simulation,target,target_editor:targetEditor,
+    design_requirements:requirements,manufacturing_constraints:constraints,refinement_settings:refinement,
+    candidate_requirements:candidateRequirements,candidate_design_snapshot:candidateDesign,candidates,
+    candidate_target:candidateTarget,adopted_candidate:adoption,forward_verification:verification});
+  const saveProject = () => { downloadText("thin-film-project.json", JSON.stringify(projectDocument(), null, 2)); setDirty(false); };
   const loadProject = async (file: File) => {
     try {
       const input = JSON.parse(await file.text());
@@ -119,7 +130,9 @@ export default function App() {
       setTargetEditor(editor); setTarget(editorToSpectrum(editor));
       setRequirements(project.design_requirements); setConstraints(project.manufacturing_constraints); setCandidateRequirements(project.candidate_requirements ?? null); setCandidateDesign(project.candidate_design_snapshot ?? null);
       setCandidates(project.candidates ?? []);
+      setAdoption(project.adopted_candidate ?? null);setVerification(project.forward_verification ?? null);
       setCandidateTarget(project.candidate_target ?? project.target ?? null); setHistory([]); setDirty(false);
+      setNotice(project.adopted_candidate?`已打开项目；恢复采用来源：${project.adopted_candidate.variant==='initial'?'精修初值':'当前候选'}`:'已打开项目');
       setAppError(null);
     } catch (error) {
       setAppError(error instanceof Error ? error.message : String(error));
@@ -144,9 +157,9 @@ export default function App() {
         <header className="topbar"><div className="project-name"><span>项目</span><input value={projectName} onChange={(event) => { setProjectName(event.target.value); setDirty(true); }} /></div><div className="topbar-actions"><button onClick={() => projectInput.current?.click()}>打开</button><input ref={projectInput} hidden type="file" accept=".json,application/json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadProject(file); event.target.value = ""; }} /><button onClick={saveProject}>{dirty ? "保存 · 有修改" : "保存"}</button><button disabled={!history.length} onClick={() => { setSimulation(history[history.length-1]); setHistory(history.slice(0,-1)); setDirty(true); }}>撤销</button><div className="divider" /><span className="engine-status"><i className={health ? "ready" : ""} />{health?.optogpt.cuda_available ? `CUDA ${health.optogpt.cuda_version}` : "CPU"}</span></div></header>
         {notice && <div className="notice-bar" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
         {appError && <div className="global-error" onClick={() => setAppError(null)}>{appError}<span>×</span></div>}
-        <div hidden={page !== "forward"}><ForwardPage request={simulation} materials={materials} onRequestChange={editSimulation} /></div>
-        <div hidden={page !== "inverse"}><InversePage key={projectRevision} refinement={refinement} onRefinementChange={value=>{setRefinement(value);setDirty(true);}} target={target} editor={targetEditor} onEditorChange={editTarget} requirements={requirements} onRequirementsChange={value=>{setRequirements(value);setDirty(true);}} constraints={constraints} onConstraintsChange={value=>{setConstraints(value);setDirty(true);}} referenceLayers={simulation.layers} materials={materials} onCandidatesChange={(values, snapshot, rules, design) => { setCandidates(values); setCandidateTarget(snapshot); setCandidateRequirements(rules ?? null); setCandidateDesign(design ?? null); setDirty(true); }} onUseCandidate={useCandidate} /></div>
-        <div hidden={page !== "compare"}><ComparePage candidates={candidates} target={candidateTarget ?? target} requirements={candidateRequirements} onUseCandidate={useCandidate} /></div>
+        <div hidden={page !== "forward"}><ForwardPage adoption={adoption} verification={verification} onVerification={value=>{setVerification(value);setDirty(true);}} onCompare={()=>setPage('compare')} request={simulation} materials={materials} onRequestChange={editSimulation} /></div>
+        <div hidden={page !== "inverse"}><InversePage key={projectRevision} candidates={candidates} candidateDesign={candidateDesign} onReviewCandidates={()=>setPage('compare')} refinement={refinement} onRefinementChange={value=>{setRefinement(value);setDirty(true);}} target={target} editor={targetEditor} onEditorChange={editTarget} requirements={requirements} onRequirementsChange={value=>{setRequirements(value);setDirty(true);}} constraints={constraints} onConstraintsChange={value=>{setConstraints(value);setDirty(true);}} referenceLayers={simulation.layers} materials={materials} onCandidatesChange={(values, snapshot, rules, design) => { setCandidates(values); setCandidateTarget(snapshot); setCandidateRequirements(rules ?? null); setCandidateDesign(design ?? null); setDirty(true); }} onUseCandidate={useCandidate} /></div>
+        <div hidden={page !== "compare"}><ComparePage candidates={candidates} target={candidateTarget ?? target} requirements={candidateRequirements} onUseCandidate={useCandidate} onCandidateReviewed={(source,updated)=>{setCandidates(old=>replaceReviewedCandidate(old,source,updated));setDirty(true);}} onExportDesign={()=>downloadText('optogpt-design-package.json',JSON.stringify(projectDocument(),null,2))} /></div>
         {page === "materials" && <MaterialsPage materials={materials} />}
       </div>
     </div>
